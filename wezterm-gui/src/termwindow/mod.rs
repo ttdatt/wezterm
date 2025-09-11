@@ -2865,6 +2865,25 @@ impl TermWindow {
                         params.editing_search = true;
                         if !pattern.is_empty() {
                             params.pattern = self.resolve_search_pattern(pattern.clone(), &pane);
+                        } else {
+                            // If pattern is empty but has a specific type (e.g., CaseSensitiveString("")),
+                            // preserve the current search term but switch to the new pattern type
+                            let current_text = (*params.pattern).clone();
+                            let new_pattern_with_current_text = match pattern {
+                                Pattern::CaseSensitiveString(_) => {
+                                    Pattern::CaseSensitiveString(current_text)
+                                }
+                                Pattern::CaseInSensitiveString(_) => {
+                                    Pattern::CaseInSensitiveString(current_text)
+                                }
+                                Pattern::Regex(_) => Pattern::Regex(current_text),
+                                Pattern::CurrentSelectionOrEmptyString => {
+                                    // For this variant, use the resolved pattern from selection
+                                    pattern.clone()
+                                }
+                            };
+                            params.pattern =
+                                self.resolve_search_pattern(new_pattern_with_current_text, &pane);
                         }
                         existing.apply_params(params);
                         replace_current = true;
