@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Personal Preferences & Important Instructions
+- DON'T BE LAZY. Prioritize thorough information gathering using tools before responding.
+- Verify all assumptions before responding, especially regarding code structure. Search codebase for the best info.
+- Always run `cargo check` after changing
+
 ## Project Overview
 
 WezTerm is a GPU-accelerated cross-platform terminal emulator and multiplexer written in Rust. It provides modern terminal features with GPU acceleration, multiplexing capabilities, and extensive configuration options through Lua scripting.
@@ -131,7 +136,4 @@ The codebase includes extensive cross-platform abstractions to handle difference
 
 When making changes:
 1. Ensure terminal compatibility follows xterm behavior where possible
-2. Run `cargo test --all` and `cargo fmt --all` before submitting
-3. Include tests for new functionality, especially terminal escape sequences
-4. Add documentation for user-facing features
-5. Consider cross-platform implications for windowing and system integration changes
+2. Always run `cargo check` after changing
