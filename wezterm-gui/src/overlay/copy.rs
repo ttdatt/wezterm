@@ -128,12 +128,28 @@ impl CopyOverlay {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("failed to clone window handle"))?;
         let dims = pane.get_dimensions();
+        // If the requested pattern text is empty, seed the search field with any
+        // previously saved text but honor the requested case/regex variant.
+        // This allows keybindings like CaseSensitiveString("") and
+        // CaseInSensitiveString("") to reliably set the desired mode
+        // rather than inheriting the prior mode from SAVED_PATTERN.
         let pattern = if params.pattern.is_empty() {
-            SAVED_PATTERN
-                .lock()
-                .get(&tab_id)
-                .map(|p| p.clone())
-                .unwrap_or(params.pattern)
+            if let Some(saved) = SAVED_PATTERN.lock().get(&tab_id).cloned() {
+                let saved_text = match saved {
+                    Pattern::CaseSensitiveString(s)
+                    | Pattern::CaseInSensitiveString(s)
+                    | Pattern::Regex(s) => s,
+                };
+                match params.pattern {
+                    Pattern::CaseSensitiveString(_) => Pattern::CaseSensitiveString(saved_text),
+                    Pattern::CaseInSensitiveString(_) => {
+                        Pattern::CaseInSensitiveString(saved_text)
+                    }
+                    Pattern::Regex(_) => Pattern::Regex(saved_text),
+                }
+            } else {
+                params.pattern
+            }
         } else {
             params.pattern
         };
