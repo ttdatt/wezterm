@@ -17,6 +17,10 @@ config.color_scheme = 'Batman'
 return config
 ```
 
+Setting `dim_text_color` forces any text that enables the "dim" (also known as
+half-intensity) SGR attribute to use that specific color rather than a
+brightness-adjusted version of the existing foreground color.
+
 You can find a list of available color schemes and screenshots
 in [The Color Schemes Section](../colorschemes/index.md).
 
@@ -82,6 +86,9 @@ config.colors = {
   -- The color of the split lines between panes
   split = '#444444',
 
+  -- The color used when text is rendered with the "dim" (SGR 2) attribute
+  dim_text_color = '#808080', -- {{since('nightly', inline=True)}}
+
   ansi = {
     'black',
     'maroon',
@@ -140,6 +147,10 @@ config.colors = {
 
 return config
 ```
+
+Setting `dim_text_color` forces any text that enables the dim/half-intensity
+SGR attribute to use the specified color rather than a brightness-adjusted
+version of the original foreground.
 
 {{since('20220101-133340-7edc5b5a')}}
 
@@ -548,4 +559,3 @@ through to `1.0` (completely opaque).
 ```lua
 config.text_background_opacity = 0.3
 ```
-
