@@ -142,9 +142,7 @@ impl CopyOverlay {
                 };
                 match params.pattern {
                     Pattern::CaseSensitiveString(_) => Pattern::CaseSensitiveString(saved_text),
-                    Pattern::CaseInSensitiveString(_) => {
-                        Pattern::CaseInSensitiveString(saved_text)
-                    }
+                    Pattern::CaseInSensitiveString(_) => Pattern::CaseInSensitiveString(saved_text),
                     Pattern::Regex(_) => Pattern::Regex(saved_text),
                 }
             } else {

@@ -75,6 +75,8 @@ As features stabilize some brief notes about them will accumulate here.
   easier to spot the remaining candidates. Thanks to @mr-felixoid and @bew! #7752
 
 #### New
+* [dim_text_color](config/lua/config/dim_text_color.md) option to control the
+  color used when text enables the SGR 2 "dim" attribute.
 * [wezterm.serde](config/lua/wezterm.serde/index.md) module for serialization
   and deserialization of JSON, TOML and YAML. Thanks to @expnn! #4969
 * `wezterm ssh` now supports agent forwarding. Thanks to @Riatre! #5345
@@ -2556,5 +2558,4 @@ font_hinting = "Full" # None, Vertical, VerticalSubpixel, Full
 * `wezterm imgcat /some/image.png` to display images inline in the terminal using the iTerm2 image protocol
 * IME support on macOS and Windows systems
 * Automatic fallback to software rendering if no GPU is available (eg: certain types of remote desktop sessions)
-
 

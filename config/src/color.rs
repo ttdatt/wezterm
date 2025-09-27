@@ -130,6 +130,8 @@ impl From<ColorSpec> for TWColorSpec {
 pub struct Palette {
     /// The text color to use when the attributes are reset to default
     pub foreground: Option<RgbaColor>,
+    /// The text color to use when a cell requests half intensity (SGR 2)
+    pub dim_text_color: Option<RgbaColor>,
     /// The background color to use when the attributes are reset to default
     pub background: Option<RgbaColor>,
     /// The color of the cursor
@@ -192,6 +194,7 @@ impl Palette {
         }
         Self {
             foreground: overlay!(foreground),
+            dim_text_color: overlay!(dim_text_color),
             background: overlay!(background),
             cursor_fg: overlay!(cursor_fg),
             cursor_bg: overlay!(cursor_bg),
