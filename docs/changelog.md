@@ -245,6 +245,7 @@ As features stabilize some brief notes about them will accumulate here.
 * `libssh` based ssh sessions will now respect `ServerAliveInterval`. #4023
 * macOS: prevent infinite loop in `Services` menu validation. Thanks to @cpick!
   #7098 #6738 #6833 #6864
+* Wayland: fixed issue with fractional scaling. Thanks to @kalebo! #7277
 
 #### Updated
 * Bundled conpty.dll and OpenConsole.exe to build 1.22.250204002.nupkg
