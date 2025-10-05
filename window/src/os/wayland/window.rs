@@ -1498,7 +1498,7 @@ impl SurfaceDataExt for SurfaceUserData {
 }
 
 impl HasDisplayHandle for WaylandWindowInner {
-    fn display_handle(&self) -> Result<DisplayHandle, HandleError> {
+    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
         let conn = WaylandConnection::get().unwrap().wayland();
         let backend = conn.connection.backend();
         let handle = backend.display_handle()?;
@@ -1507,7 +1507,7 @@ impl HasDisplayHandle for WaylandWindowInner {
 }
 
 impl HasWindowHandle for WaylandWindowInner {
-    fn window_handle(&self) -> Result<WindowHandle, HandleError> {
+    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
         let handle = WaylandWindowHandle::new(
             NonNull::new(self.surface().id().as_ptr() as _).expect("non-null"),
         );
@@ -1516,7 +1516,7 @@ impl HasWindowHandle for WaylandWindowInner {
 }
 
 impl HasDisplayHandle for WaylandWindow {
-    fn display_handle(&self) -> Result<DisplayHandle, HandleError> {
+    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
         let conn = WaylandConnection::get().unwrap().wayland();
         let backend = conn.connection.backend();
         let handle = backend.display_handle()?;
@@ -1525,7 +1525,7 @@ impl HasDisplayHandle for WaylandWindow {
 }
 
 impl HasWindowHandle for WaylandWindow {
-    fn window_handle(&self) -> Result<WindowHandle, HandleError> {
+    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
         let conn = Connection::get().expect("raw_window_handle only callable on main thread");
         let handle = conn
             .wayland()
