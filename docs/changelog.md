@@ -247,6 +247,8 @@ As features stabilize some brief notes about them will accumulate here.
   #7098 #6738 #6833 #6864
 * Wayland: fixed issue with fractional scaling. Thanks to @kalebo! #7277
 * Incorrect boundary condition in renderstate. Thanks to @I-Info! #7274
+* MacOS: fix memory leak in macOS MetalLayer management. Thanks to @I-Info!
+  #7283
 
 #### Updated
 * Bundled conpty.dll and OpenConsole.exe to build 1.22.250204002.nupkg
