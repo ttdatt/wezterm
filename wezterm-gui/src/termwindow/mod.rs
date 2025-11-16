@@ -386,6 +386,7 @@ pub struct TermWindow {
     pub render_metrics: RenderMetrics,
     render_state: Option<RenderState>,
     input_map: InputMap,
+    open_link_mouse_modifiers: Vec<config::MouseEventTriggerMods>,
     /// If is_some, the LEADER modifier is active until the specified instant.
     leader_is_down: Option<std::time::Instant>,
     dead_key_status: DeadKeyStatus,
@@ -678,6 +679,9 @@ impl TermWindow {
 
         let render_state = None;
 
+        let input_map = InputMap::new(&config);
+        let open_link_mouse_modifiers = input_map.open_link_mouse_trigger_mods();
+
         let connection_name = Connection::get().unwrap().name();
 
         let myself = Self {
@@ -709,7 +713,8 @@ impl TermWindow {
             pending_scale_changes: LinkedList::new(),
             terminal_size,
             render_state,
-            input_map: InputMap::new(&config),
+            input_map,
+            open_link_mouse_modifiers,
             leader_is_down: None,
             dead_key_status: DeadKeyStatus::None,
             show_tab_bar,
@@ -1792,6 +1797,7 @@ impl TermWindow {
         self.invalidate_fancy_tab_bar();
         self.invalidate_modal();
         self.input_map = InputMap::new(&config);
+        self.open_link_mouse_modifiers = self.input_map.open_link_mouse_trigger_mods();
         self.leader_is_down = None;
         self.render_state.as_mut().map(|rs| rs.config_changed());
         let dimensions = self.dimensions;

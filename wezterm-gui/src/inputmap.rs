@@ -4,7 +4,7 @@ use config::keyassignment::{
     MouseEventTrigger, SelectionMode,
 };
 use config::{ConfigHandle, MouseEventAltScreen, MouseEventTriggerMods};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
 use wezterm_dynamic::{ToDynamic, Value};
 use wezterm_term::input::MouseButton;
@@ -461,6 +461,18 @@ impl InputMap {
     ) -> Option<KeyAssignment> {
         mods.mods = mods.mods.remove_positional_mods();
         self.mouse.get(&(event, mods)).cloned()
+    }
+
+    pub fn open_link_mouse_trigger_mods(&self) -> Vec<MouseEventTriggerMods> {
+        let mut mods = HashSet::new();
+        for ((_, trigger_mods), assignment) in &self.mouse {
+            if assignment == &KeyAssignment::OpenLinkAtMouseCursor {
+                let mut normalized = *trigger_mods;
+                normalized.mods = normalized.mods.remove_positional_mods();
+                mods.insert(normalized);
+            }
+        }
+        mods.into_iter().collect()
     }
 
     pub fn dump_config(&self, key_table: Option<&str>) {

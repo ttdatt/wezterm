@@ -24,6 +24,45 @@ use wezterm_term::input::{MouseButton, MouseEventKind as TMEK};
 use wezterm_term::{ClickPosition, LastMouseClick, StableRowIndex};
 
 impl super::TermWindow {
+    fn mouse_trigger_mods_for_event(
+        &self,
+        pane: &Arc<dyn Pane>,
+        event: &MouseEvent,
+    ) -> config::MouseEventTriggerMods {
+        let mut modifiers = event.modifiers;
+        let mut mouse_reporting = pane.is_mouse_grabbed();
+        if mouse_reporting
+            && modifiers.contains(self.config.bypass_mouse_reporting_modifiers)
+        {
+            modifiers.remove(self.config.bypass_mouse_reporting_modifiers);
+            mouse_reporting = false;
+        }
+
+        let mut mods = config::MouseEventTriggerMods {
+            mods: modifiers.remove_positional_mods(),
+            mouse_reporting,
+            alt_screen: if pane.is_alt_screen_active() {
+                MouseEventAltScreen::True
+            } else {
+                MouseEventAltScreen::False
+            },
+        };
+        mods
+    }
+
+    fn hand_cursor_allowed_for_open_link(
+        &self,
+        mouse_mods: config::MouseEventTriggerMods,
+    ) -> bool {
+        if self.open_link_mouse_modifiers.is_empty() {
+            return true;
+        }
+
+        self.open_link_mouse_modifiers
+            .iter()
+            .any(|mods| *mods == mouse_mods)
+    }
+
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
         let x = event.coords.x;
         let y = event.coords.y;
@@ -828,12 +867,17 @@ impl super::TermWindow {
             }
         };
 
+        let mouse_mods = self.mouse_trigger_mods_for_event(&pane, &event);
+
         let outside_window = event.coords.x < 0
             || event.coords.x as usize > self.dimensions.pixel_width
             || event.coords.y < 0
             || event.coords.y as usize > self.dimensions.pixel_height;
 
-        context.set_cursor(Some(if self.current_highlight.is_some() {
+        let show_link_cursor =
+            self.current_highlight.is_some() && self.hand_cursor_allowed_for_open_link(mouse_mods);
+
+        context.set_cursor(Some(if show_link_cursor {
             // When hovering over a hyperlink, show an appropriate
             // mouse cursor to give the cue that it is clickable
             MouseCursor::Hand
@@ -917,19 +961,7 @@ impl super::TermWindow {
         if allow_action {
             if let Some(mut event_trigger_type) = event_trigger_type {
                 self.current_event = Some(event_trigger_type.to_dynamic());
-                let mut modifiers = event.modifiers;
-
-                // Since we use shift to force assessing the mouse bindings, pretend
-                // that shift is not one of the mods when the mouse is grabbed.
-                let mut mouse_reporting = pane.is_mouse_grabbed();
-                if mouse_reporting {
-                    if modifiers.contains(self.config.bypass_mouse_reporting_modifiers) {
-                        modifiers.remove(self.config.bypass_mouse_reporting_modifiers);
-                        mouse_reporting = false;
-                    }
-                }
-
-                if mouse_reporting {
+                if mouse_mods.mouse_reporting {
                     // If they were scrolled back prior to launching an
                     // application that captures the mouse, then mouse based
                     // scrolling assignments won't have any effect.
@@ -969,16 +1001,6 @@ impl super::TermWindow {
                         *delta = 1;
                     }
                     _ => {}
-                };
-
-                let mouse_mods = config::MouseEventTriggerMods {
-                    mods: modifiers,
-                    mouse_reporting,
-                    alt_screen: if pane.is_alt_screen_active() {
-                        MouseEventAltScreen::True
-                    } else {
-                        MouseEventAltScreen::False
-                    },
                 };
 
                 if let Some(action) = self.input_map.lookup_mouse(event_trigger_type, mouse_mods) {
