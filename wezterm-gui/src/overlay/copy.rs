@@ -79,6 +79,8 @@ struct CopyRenderable {
     height: usize,
     editing_search: bool,
     result_pos: Option<usize>,
+    pending_select_result: Option<SearchResult>,
+    needs_result_clear: bool,
     tab_id: TabId,
     /// Used to debounce queries while the user is typing
     typing_cookie: usize,
@@ -171,6 +173,8 @@ impl CopyOverlay {
             search_line,
             editing_search: params.editing_search,
             result_pos: None,
+            pending_select_result: None,
+            needs_result_clear: false,
             selection_mode: SelectionMode::Cell,
             typing_cookie: 0,
             searching: None,
@@ -180,7 +184,7 @@ impl CopyOverlay {
 
         let search_row = render.compute_search_row();
         render.dirty_results.add(search_row);
-        render.update_search();
+        render.update_search(false);
 
         let shared_render = Arc::new(Mutex::new(render));
         let writer = SearchOverlayPatternWriter {
@@ -247,9 +251,7 @@ impl CopyRenderable {
         self.width = dims.cols;
         self.height = dims.viewport_rows;
 
-        let pos = self.result_pos;
-        self.update_search();
-        self.result_pos = pos;
+        self.update_search(true);
     }
 
     fn incrementally_recompute_results(&mut self, mut results: Vec<SearchResult>) {
@@ -286,6 +288,29 @@ impl CopyRenderable {
         self.results.append(&mut results);
     }
 
+    fn clear_current_matches(&mut self) {
+        for idx in self.by_line.keys() {
+            self.dirty_results.add(*idx);
+        }
+        if let Some(idx) = self.last_bar_pos.as_ref() {
+            self.dirty_results.add(*idx);
+        }
+        self.results.clear();
+        self.by_line.clear();
+        self.result_pos.take();
+    }
+
+    fn try_restore_pending_selection(&mut self) -> bool {
+        if let Some(target) = self.pending_select_result.as_ref() {
+            if let Some(idx) = self.results.iter().position(|res| res == target) {
+                self.pending_select_result.take();
+                self.activate_match_number(idx);
+                return true;
+            }
+        }
+        false
+    }
+
     fn schedule_update_search(&mut self) {
         self.typing_cookie += 1;
         let cookie = self.typing_cookie;
@@ -301,7 +326,7 @@ impl CopyRenderable {
                     if let Some(copy_overlay) = overlay.pane.downcast_ref::<CopyOverlay>() {
                         let mut r = copy_overlay.render.lock();
                         if cookie == r.typing_cookie {
-                            r.update_search();
+                            r.update_search(false);
                         }
                     }
                 }
@@ -311,17 +336,17 @@ impl CopyRenderable {
         .detach();
     }
 
-    fn update_search(&mut self) {
-        for idx in self.by_line.keys() {
-            self.dirty_results.add(*idx);
+    fn update_search(&mut self, preserve_selection: bool) {
+        if preserve_selection {
+            if let Some(idx) = self.result_pos {
+                self.pending_select_result = self.results.get(idx).cloned();
+            }
+            self.needs_result_clear = true;
+        } else {
+            self.pending_select_result.take();
+            self.needs_result_clear = false;
+            self.clear_current_matches();
         }
-        if let Some(idx) = self.last_bar_pos.as_ref() {
-            self.dirty_results.add(*idx);
-        }
-
-        self.results.clear();
-        self.by_line.clear();
-        self.result_pos.take();
 
         SAVED_PATTERN.lock().insert(self.tab_id, self.get_pattern());
 
@@ -381,20 +406,41 @@ impl CopyRenderable {
         if pattern != self.get_pattern() {
             return;
         }
+        if self.needs_result_clear {
+            self.clear_current_matches();
+            self.needs_result_clear = false;
+        }
         let is_first = self.results.is_empty();
         self.incrementally_recompute_results(results);
 
+        let restored = self.try_restore_pending_selection();
+
         if is_first {
-            if !self.results.is_empty() {
-                self.activate_match_number(0);
-            } else {
-                self.set_viewport(None);
-                self.clear_selection();
+            if restored {
+                // already handled
+            } else if self.pending_select_result.is_none() {
+                if !self.results.is_empty() {
+                    self.activate_match_number(0);
+                } else {
+                    self.set_viewport(None);
+                    self.clear_selection();
+                }
             }
         }
 
         let dims = self.delegate.get_dimensions();
         if range.start == dims.scrollback_top {
+            if self.pending_select_result.is_some() {
+                if self.result_pos.is_none() {
+                    if !self.results.is_empty() {
+                        self.activate_match_number(0);
+                    } else {
+                        self.set_viewport(None);
+                        self.clear_selection();
+                    }
+                }
+                self.pending_select_result.take();
+            }
             self.searching.take();
             return;
         }
@@ -666,7 +712,7 @@ impl CopyRenderable {
 
     fn clear_pattern(&mut self) {
         self.search_line.clear();
-        self.update_search();
+        self.update_search(false);
     }
 
     fn edit_pattern(&mut self) {
@@ -1405,7 +1451,7 @@ impl Pane for CopyOverlay {
         // lock erro!
         let mut renderer = self.render.lock();
         if self.delegate.get_current_seqno() > renderer.last_result_seqno {
-            renderer.update_search();
+            renderer.update_search(true);
         }
         renderer.check_for_resize();
         let dims = self.get_dimensions();
@@ -1525,7 +1571,7 @@ impl Pane for CopyOverlay {
     fn get_lines(&self, lines: Range<StableRowIndex>) -> (StableRowIndex, Vec<Line>) {
         let mut renderer = self.render.lock();
         if self.delegate.get_current_seqno() > renderer.last_result_seqno {
-            renderer.update_search();
+            renderer.update_search(true);
         }
 
         renderer.check_for_resize();

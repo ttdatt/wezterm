@@ -31,14 +31,12 @@ impl super::TermWindow {
     ) -> config::MouseEventTriggerMods {
         let mut modifiers = event.modifiers;
         let mut mouse_reporting = pane.is_mouse_grabbed();
-        if mouse_reporting
-            && modifiers.contains(self.config.bypass_mouse_reporting_modifiers)
-        {
+        if mouse_reporting && modifiers.contains(self.config.bypass_mouse_reporting_modifiers) {
             modifiers.remove(self.config.bypass_mouse_reporting_modifiers);
             mouse_reporting = false;
         }
 
-        let mut mods = config::MouseEventTriggerMods {
+        let mods = config::MouseEventTriggerMods {
             mods: modifiers.remove_positional_mods(),
             mouse_reporting,
             alt_screen: if pane.is_alt_screen_active() {
@@ -50,10 +48,7 @@ impl super::TermWindow {
         mods
     }
 
-    fn hand_cursor_allowed_for_open_link(
-        &self,
-        mouse_mods: config::MouseEventTriggerMods,
-    ) -> bool {
+    fn hand_cursor_allowed_for_open_link(&self, mouse_mods: config::MouseEventTriggerMods) -> bool {
         if self.open_link_mouse_modifiers.is_empty() {
             return true;
         }

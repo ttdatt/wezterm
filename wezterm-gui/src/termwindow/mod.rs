@@ -3361,13 +3361,27 @@ impl TermWindow {
         position: Option<StableRowIndex>,
         dims: RenderableDimensions,
     ) {
+        let overlay_is_copy_mode = {
+            let state = self.pane_state(pane_id);
+            state
+                .overlay
+                .as_ref()
+                .map(|overlay| overlay.pane.downcast_ref::<CopyOverlay>().is_some())
+                .unwrap_or(false)
+        };
+
         let pos = match position {
             Some(pos) => {
-                // Drop out of scrolling mode if we're off the bottom
-                if pos >= dims.physical_top {
+                let clamped = pos
+                    .max(dims.scrollback_top)
+                    .min(dims.physical_top);
+                // Drop out of scrolling mode if we're off the bottom,
+                // unless copy/search mode explicitly requested it so
+                // that the viewport stays pinned while searching.
+                if clamped >= dims.physical_top && !overlay_is_copy_mode {
                     None
                 } else {
-                    Some(pos.max(dims.scrollback_top))
+                    Some(clamped)
                 }
             }
             None => None,
