@@ -25,7 +25,7 @@ use termwiz::lineedit::{LineEditBuffer, Movement};
 use termwiz::surface::{CursorVisibility, SequenceNo, SEQ_ZERO};
 use unicode_segmentation::*;
 use url::Url;
-use wezterm_term::color::ColorPalette;
+use wezterm_term::color::{ColorAttribute, ColorPalette};
 use wezterm_term::{
     unicode_column_width, Clipboard, KeyCode, KeyModifiers, Line, MouseEvent, SemanticType,
     StableRowIndex, TerminalSize,
@@ -1162,6 +1162,29 @@ impl CopyRenderable {
     }
 }
 
+fn search_ui_colors(palette: &config::Palette) -> (ColorAttribute, ColorAttribute) {
+    let fg = palette.search_bar_fg.unwrap_or(AnsiColor::Black.into());
+    let bg = palette.search_bar_bg.unwrap_or(AnsiColor::White.into());
+    (fg.into(), bg.into())
+}
+
+fn search_ui_cursor_colors(palette: &config::Palette) -> (ColorAttribute, ColorAttribute) {
+    let fg = palette
+        .search_bar_cursor_fg
+        .unwrap_or(AnsiColor::White.into());
+    let bg = palette
+        .search_bar_cursor_bg
+        .unwrap_or(AnsiColor::Black.into());
+    (fg.into(), bg.into())
+}
+
+fn search_ui_attr(palette: &config::Palette) -> CellAttributes {
+    let (fg, bg) = search_ui_colors(palette);
+    let mut attr = CellAttributes::default();
+    attr.set_foreground(fg).set_background(bg);
+    attr
+}
+
 impl Pane for CopyOverlay {
     fn pane_id(&self) -> PaneId {
         self.delegate.pane_id()
@@ -1371,7 +1394,19 @@ impl Pane for CopyOverlay {
     }
 
     fn palette(&self) -> ColorPalette {
-        self.delegate.palette()
+        let mut palette = self.delegate.palette();
+        let editing_search = self.render.lock().editing_search;
+
+        if editing_search {
+            let config = config::configuration();
+            let (fg, bg) = search_ui_cursor_colors(&config.resolved_palette);
+
+            palette.cursor_bg = palette.resolve_bg(bg);
+            palette.cursor_fg = palette.resolve_fg(fg);
+            palette.cursor_border = palette.cursor_bg;
+        }
+
+        palette
     }
 
     fn domain_id(&self) -> DomainId {
@@ -1490,8 +1525,12 @@ impl Pane for CopyOverlay {
                         && (self.renderer.editing_search || !pattern.is_empty())
                     {
                         // Replace with search UI
-                        let rev = CellAttributes::default().set_reverse(true).clone();
-                        line.fill_range(0..self.dims.cols, &Cell::new(' ', rev.clone()), SEQ_ZERO);
+                        let search_attr = search_ui_attr(colors);
+                        line.fill_range(
+                            0..self.dims.cols,
+                            &Cell::new(' ', search_attr.clone()),
+                            SEQ_ZERO,
+                        );
                         let mode = &match pattern {
                             Pattern::CaseSensitiveString(_) => "case-sensitive",
                             Pattern::CaseInSensitiveString(_) => "ignore-case",
@@ -1515,7 +1554,7 @@ impl Pane for CopyOverlay {
                                 self.renderer.results.len(),
                                 mode
                             ),
-                            rev,
+                            search_attr,
                             SEQ_ZERO,
                         );
                         self.renderer.last_bar_pos = Some(self.search_row);
@@ -1592,8 +1631,12 @@ impl Pane for CopyOverlay {
             let pattern = renderer.get_pattern();
             if stable_idx == search_row && (renderer.editing_search || !pattern.is_empty()) {
                 // Replace with search UI
-                let rev = CellAttributes::default().set_reverse(true).clone();
-                line.fill_range(0..dims.cols, &Cell::new(' ', rev.clone()), SEQ_ZERO);
+                let search_attr = search_ui_attr(colors);
+                line.fill_range(
+                    0..dims.cols,
+                    &Cell::new(' ', search_attr.clone()),
+                    SEQ_ZERO,
+                );
                 let mode = &match pattern {
                     Pattern::CaseSensitiveString(_) => "case-sensitive",
                     Pattern::CaseInSensitiveString(_) => "ignore-case",
@@ -1609,7 +1652,7 @@ impl Pane for CopyOverlay {
                         renderer.results.len(),
                         mode
                     ),
-                    rev,
+                    search_attr,
                     SEQ_ZERO,
                 );
                 renderer.last_bar_pos = Some(search_row);

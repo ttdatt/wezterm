@@ -133,6 +133,12 @@ config.colors = {
   copy_mode_inactive_highlight_bg = { Color = '#52ad70' },
   copy_mode_inactive_highlight_fg = { AnsiColor = 'White' },
 
+  -- Colors for the search overlay input line -- {{since('nightly', inline=True)}}
+  search_bar_bg = { AnsiColor = 'White' },
+  search_bar_fg = { AnsiColor = 'Black' },
+  search_bar_cursor_bg = { AnsiColor = 'Black' },
+  search_bar_cursor_fg = { AnsiColor = 'White' },
+
   quick_select_label_bg = { Color = 'peru' },
   quick_select_label_fg = { Color = '#ffffff' },
   quick_select_match_bg = { AnsiColor = 'Navy' },
