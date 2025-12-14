@@ -1737,7 +1737,10 @@ pub fn search_key_table() -> KeyTable {
         (
             WKeyCode::Char('\x1b'),
             Modifiers::NONE,
-            KeyAssignment::CopyMode(CopyModeAssignment::Close),
+            KeyAssignment::Multiple(vec![
+                KeyAssignment::CopyMode(CopyModeAssignment::ClearPattern),
+                KeyAssignment::CopyMode(CopyModeAssignment::Close),
+            ]),
         ),
         (
             WKeyCode::UpArrow,
