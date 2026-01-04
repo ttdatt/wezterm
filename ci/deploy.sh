@@ -54,7 +54,19 @@ case $OSTYPE in
     done
 
     set +x
-    if [ -n "$MACOS_TEAM_ID" ] ; then
+    # The CI packaging environment provides signing cert material via
+    # MACOS_TEAM_ID + MACOS_CERT + MACOS_CERT_PW, which we import into
+    # a temporary keychain and then sign the app bundle.
+    #
+    # For local developer builds, you can set MACOS_CODESIGN_IDENTITY
+    # (eg: "WezTerm Local") and we'll sign using whatever is already
+    # installed in your keychain, without attempting to import certs
+    # or notarize the resulting zip.
+    if [ -n "$MACOS_CODESIGN_IDENTITY" ] ; then
+      echo "Codesign (local identity: $MACOS_CODESIGN_IDENTITY)"
+      /usr/bin/codesign --force --options runtime \
+        --entitlements ci/macos-entitlement.plist --deep --sign "$MACOS_CODESIGN_IDENTITY" $zipdir/WezTerm.app/
+    elif [ -n "$MACOS_TEAM_ID" ] ; then
       MACOS_PW=$(echo $MACOS_CERT_PW | base64 --decode)
       echo "pw sha"
       echo $MACOS_PW | shasum

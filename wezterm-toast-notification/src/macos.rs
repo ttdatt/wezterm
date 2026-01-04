@@ -9,7 +9,7 @@ use objc2_user_notifications::{
     UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAction,
     UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
     UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse,
-    UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    UNNotificationSound, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
 };
 use std::sync::{LazyLock, Once};
 
@@ -155,6 +155,8 @@ pub fn show_notif(toast: ToastNotification) -> Result<(), Box<dyn std::error::Er
         let notif = UNMutableNotificationContent::new();
         notif.setTitle(&NSString::from_str(&toast.title));
         notif.setBody(&NSString::from_str(&toast.message));
+        let sound = UNNotificationSound::defaultSound();
+        notif.setSound(Some(&*sound));
 
         if let Some(url) = &toast.url {
             let info =
