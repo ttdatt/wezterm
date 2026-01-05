@@ -1917,6 +1917,32 @@ fn get_window_class() -> &'static Class {
 }
 
 impl WindowView {
+    /// With `NSFullSizeContentViewWindowMask` and a hidden title, macOS will treat
+    /// the titlebar region as draggable, which includes our tab bar.
+    ///
+    /// WezTerm implements its own drag handling for the non-tab "free space" (and
+    /// StartWindowDrag), so disable native dragging when the TITLE decoration is
+    /// not present.
+    extern "C" fn mouse_down_can_move_window(this: &Object, _sel: Sel) -> BOOL {
+        if let Some(myself) = Self::get_this(this) {
+            let inner = myself.inner.borrow();
+            if inner
+                .config
+                .window_decorations
+                .contains(WindowDecorations::TITLE)
+            {
+                unsafe {
+                    let superclass = superclass(this);
+                    msg_send![super(this, superclass), mouseDownCanMoveWindow]
+                }
+            } else {
+                NO
+            }
+        } else {
+            NO
+        }
+    }
+
     extern "C" fn dealloc(this: &mut Object, _sel: Sel) {
         Self::drop_inner(this);
         unsafe {
@@ -3190,6 +3216,11 @@ impl WindowView {
             cls.add_method(
                 sel!(dealloc),
                 WindowView::dealloc as extern "C" fn(&mut Object, Sel),
+            );
+
+            cls.add_method(
+                sel!(mouseDownCanMoveWindow),
+                Self::mouse_down_can_move_window as extern "C" fn(&Object, Sel) -> BOOL,
             );
 
             cls.add_method(
