@@ -160,6 +160,7 @@ impl super::TermWindow {
                 self.current_mouse_capture = None;
                 self.current_mouse_buttons.retain(|p| p != press);
                 if press == &MousePress::Left && self.window_drag_position.take().is_some() {
+                    self.restore_on_window_drag = false;
                     // Completed a window drag
                     return;
                 }
@@ -193,6 +194,10 @@ impl super::TermWindow {
 
             WMEK::Move => {
                 if let Some(start) = self.window_drag_position.as_ref() {
+                    if self.restore_on_window_drag {
+                        self.restore_on_window_drag = false;
+                        context.restore();
+                    }
                     // Dragging the window
                     // Compute the distance since the initial event
                     let delta_x = start.screen_coords.x - event.screen_coords.x;
@@ -502,9 +507,8 @@ impl super::TermWindow {
                     self.do_new_tab_button_click(MousePress::Left);
                 }
                 TabBarItem::None | TabBarItem::LeftStatus | TabBarItem::RightStatus => {
-                    let maximized = self
-                        .window_state
-                        .intersects(WindowState::MAXIMIZED | WindowState::FULL_SCREEN);
+                    let maximized = self.window_state.intersects(WindowState::MAXIMIZED);
+                    let fullscreen = self.window_state.intersects(WindowState::FULL_SCREEN);
                     if let Some(ref window) = self.window {
                         if self.config.window_decorations
                             == WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE
@@ -519,9 +523,8 @@ impl super::TermWindow {
                         }
                     }
                     // Potentially starting a drag by the tab bar
-                    if !maximized {
-                        self.window_drag_position.replace(event.clone());
-                    }
+                    self.restore_on_window_drag = maximized && !fullscreen;
+                    self.window_drag_position.replace(event.clone());
                     context.request_drag_move();
                 }
                 TabBarItem::WindowButton(button) => {
