@@ -2835,9 +2835,7 @@ impl TermWindow {
             }
             StartWindowDrag => {
                 self.window_drag_position = self.current_mouse_event.clone();
-                self.restore_on_window_drag = self
-                    .window_state
-                    .intersects(WindowState::MAXIMIZED)
+                self.restore_on_window_drag = self.window_state.intersects(WindowState::MAXIMIZED)
                     && !self.window_state.intersects(WindowState::FULL_SCREEN);
             }
             OpenLinkAtMouseCursor => {
@@ -3378,9 +3376,7 @@ impl TermWindow {
 
         let pos = match position {
             Some(pos) => {
-                let clamped = pos
-                    .max(dims.scrollback_top)
-                    .min(dims.physical_top);
+                let clamped = pos.max(dims.scrollback_top).min(dims.physical_top);
                 // Drop out of scrolling mode if we're off the bottom,
                 // unless copy/search mode explicitly requested it so
                 // that the viewport stays pinned while searching.
@@ -3412,7 +3408,10 @@ impl TermWindow {
 
     fn maybe_scroll_to_bottom_for_input(&mut self, pane: &Arc<dyn Pane>) {
         if self.config.scroll_to_bottom_on_input {
-            self.scroll_to_bottom(pane);
+            let has_copy_overlay = pane.downcast_ref::<CopyOverlay>().is_some();
+            if !has_copy_overlay {
+                self.scroll_to_bottom(pane);
+            }
         }
     }
 
@@ -3422,7 +3421,8 @@ impl TermWindow {
     }
 
     fn scroll_to_bottom(&mut self, pane: &Arc<dyn Pane>) {
-        self.pane_state(pane.pane_id()).viewport = None;
+        let dims = pane.get_dimensions();
+        self.set_viewport(pane.pane_id(), None, dims);
     }
 
     fn get_active_pane_no_overlay(&self) -> Option<Arc<dyn Pane>> {

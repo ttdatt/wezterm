@@ -1632,11 +1632,7 @@ impl Pane for CopyOverlay {
             if stable_idx == search_row && (renderer.editing_search || !pattern.is_empty()) {
                 // Replace with search UI
                 let search_attr = search_ui_attr(colors);
-                line.fill_range(
-                    0..dims.cols,
-                    &Cell::new(' ', search_attr.clone()),
-                    SEQ_ZERO,
-                );
+                line.fill_range(0..dims.cols, &Cell::new(' ', search_attr.clone()), SEQ_ZERO);
                 let mode = &match pattern {
                     Pattern::CaseSensitiveString(_) => "case-sensitive",
                     Pattern::CaseInSensitiveString(_) => "ignore-case",
