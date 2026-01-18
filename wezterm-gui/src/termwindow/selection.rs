@@ -75,25 +75,33 @@ impl super::TermWindow {
             let mut last_was_wrapped = false;
             let first_row = sel.rows().start;
             let last_row = sel.rows().end;
+            let end_coord = sel.end;
 
             for line in pane.get_logical_lines(sel.rows()) {
-                if !s.is_empty() && !last_was_wrapped {
-                    s.push('\n');
-                }
+                let prev_was_wrapped = last_was_wrapped;
+                let mut line_text = String::new();
+                let mut line_has_selection = false;
+                let line_contains_end = end_coord.y >= line.first_row
+                    && end_coord.y
+                        < line.first_row + line.physical_lines.len() as StableRowIndex;
                 let last_idx = line.physical_lines.len().saturating_sub(1);
                 for (idx, phys) in line.physical_lines.iter().enumerate() {
                     let this_row = line.first_row + idx as StableRowIndex;
                     if this_row >= first_row && this_row < last_row {
                         let last_phys_idx = phys.len().saturating_sub(1);
                         let cols = sel.cols_for_row(this_row, rectangular);
+                        if cols.start >= cols.end {
+                            continue;
+                        }
+                        line_has_selection = true;
                         let last_col_idx = cols.end.saturating_sub(1).min(last_phys_idx);
                         let col_span = phys.columns_as_str(cols);
                         // Only trim trailing whitespace if we are the last line
                         // in a wrapped sequence
                         if idx == last_idx {
-                            s.push_str(col_span.trim_end());
+                            line_text.push_str(col_span.trim_end());
                         } else {
-                            s.push_str(&col_span);
+                            line_text.push_str(&col_span);
                         }
 
                         last_was_wrapped = last_col_idx == last_phys_idx
@@ -102,6 +110,19 @@ impl super::TermWindow {
                                 .map(|c| c.attrs().wrapped())
                                 .unwrap_or(false);
                     }
+                }
+                if line_has_selection {
+                    if !s.is_empty() && !prev_was_wrapped {
+                        s.push('\n');
+                    }
+                    s.push_str(&line_text);
+                } else if line_contains_end
+                    && end_coord.x == SelectionX::BeforeZero
+                    && !s.is_empty()
+                    && !prev_was_wrapped
+                {
+                    // Selection ends at the start of this line; preserve the line break.
+                    s.push('\n');
                 }
             }
         }
