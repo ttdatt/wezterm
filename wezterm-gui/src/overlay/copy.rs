@@ -300,9 +300,18 @@ impl CopyRenderable {
         self.result_pos.take();
     }
 
+    fn find_result_by_position(results: &[SearchResult], target: &SearchResult) -> Option<usize> {
+        results.iter().position(|res| {
+            res.start_y == target.start_y
+                && res.start_x == target.start_x
+                && res.end_y == target.end_y
+                && res.end_x == target.end_x
+        })
+    }
+
     fn try_restore_pending_selection(&mut self) -> bool {
         if let Some(target) = self.pending_select_result.as_ref() {
-            if let Some(idx) = self.results.iter().position(|res| res == target) {
+            if let Some(idx) = Self::find_result_by_position(&self.results, target) {
                 self.pending_select_result.take();
                 self.activate_match_number(idx);
                 return true;
@@ -2126,4 +2135,38 @@ pub fn copy_key_table() -> KeyTable {
         table.insert((key, mods), KeyTableEntry { action });
     }
     table
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restore_pending_selection_ignores_match_id() {
+        let target = SearchResult {
+            start_y: 10,
+            start_x: 2,
+            end_y: 10,
+            end_x: 7,
+            match_id: 1,
+        };
+        let results = vec![
+            SearchResult {
+                start_y: 3,
+                start_x: 0,
+                end_y: 3,
+                end_x: 4,
+                match_id: 2,
+            },
+            SearchResult {
+                match_id: 99,
+                ..target
+            },
+        ];
+
+        assert_eq!(
+            CopyRenderable::find_result_by_position(&results, &target),
+            Some(1)
+        );
+    }
 }

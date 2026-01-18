@@ -466,7 +466,11 @@ impl InputMap {
     pub fn open_link_mouse_trigger_mods(&self) -> Vec<MouseEventTriggerMods> {
         let mut mods = HashSet::new();
         for ((_, trigger_mods), assignment) in &self.mouse {
-            if assignment == &KeyAssignment::OpenLinkAtMouseCursor {
+            if matches!(
+                assignment,
+                KeyAssignment::OpenLinkAtMouseCursor
+                    | KeyAssignment::CompleteSelectionOrOpenLinkAtMouseCursor(_)
+            ) {
                 let mut normalized = *trigger_mods;
                 normalized.mods = normalized.mods.remove_positional_mods();
                 mods.insert(normalized);
