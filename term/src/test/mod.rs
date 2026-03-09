@@ -315,6 +315,92 @@ fn assert_all_contents(term: &Terminal, file: &str, line: u32, expect_lines: &[&
     assert_lines_equal(file, line, &screen.all_lines(), &expect, Compare::TEXT);
 }
 
+fn assert_prefix_and_blank_tail(lines: &[Line], file: &str, line: u32, expect_prefix: &[&str]) {
+    for (idx, expect) in expect_prefix.iter().enumerate() {
+        assert!(
+            lines[idx].as_str() == *expect,
+            "{}:{}: line {} text didn't match '{}' vs '{}'",
+            file,
+            line,
+            idx,
+            lines[idx].as_str().escape_default(),
+            expect.escape_default(),
+        );
+    }
+
+    for (idx, line_content) in lines.iter().enumerate().skip(expect_prefix.len()) {
+        assert!(
+            line_content.as_str().trim_end().is_empty(),
+            "{}:{}: expected line {} to be blank, got '{}'",
+            file,
+            line,
+            idx,
+            line_content.as_str().escape_default(),
+        );
+    }
+}
+
+fn assert_visible_prefix_and_blank_tail(
+    term: &Terminal,
+    file: &str,
+    line: u32,
+    expect_prefix: &[&str],
+) {
+    let visible = term.screen().visible_lines();
+    assert_prefix_and_blank_tail(&visible, file, line, expect_prefix);
+}
+
+fn assert_all_prefix_and_blank_tail(
+    term: &Terminal,
+    file: &str,
+    line: u32,
+    expect_prefix: &[&str],
+) {
+    let all = term.screen().all_lines();
+    assert_prefix_and_blank_tail(&all, file, line, expect_prefix);
+}
+
+fn assert_cursor_coords(term: &Terminal, x: usize, y: i64) {
+    let cursor = term.cursor_pos();
+    assert_eq!(cursor.x, x);
+    assert_eq!(cursor.y, y);
+}
+
+fn prompt_block(lines: &[&str]) -> String {
+    use wezterm_escape_parser::osc::{FinalTermPromptKind, FinalTermSemanticPrompt};
+
+    let mut result = String::new();
+    for (idx, line) in lines.iter().enumerate() {
+        if idx == 0 {
+            result.push_str(&format!(
+                "{}",
+                OperatingSystemCommand::FinalTermSemanticPrompt(
+                    FinalTermSemanticPrompt::FreshLineAndStartPrompt {
+                        aid: None,
+                        cl: None,
+                    }
+                )
+            ));
+        } else {
+            result.push_str("\r\n");
+            result.push_str(&format!(
+                "{}",
+                OperatingSystemCommand::FinalTermSemanticPrompt(
+                    FinalTermSemanticPrompt::StartPrompt(FinalTermPromptKind::Continuation)
+                )
+            ));
+        }
+        result.push_str(line);
+    }
+    result.push_str(&format!(
+        "{}",
+        OperatingSystemCommand::FinalTermSemanticPrompt(
+            FinalTermSemanticPrompt::MarkEndOfPromptAndStartOfInputUntilNextMarker
+        )
+    ));
+    result
+}
+
 #[test]
 fn test_semantic_1539() {
     use wezterm_escape_parser::osc::FinalTermSemanticPrompt;
@@ -482,6 +568,142 @@ fn test_semantic() {
         ],
         Compare::TEXT | Compare::ATTRS,
     );
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_falls_back_without_semantic_prompt() {
+    let mut term = TestTerm::new(3, 20, 10);
+    term.print("one\r\ntwo\r\nthree\r\nfour");
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(&term, file!(), line!(), &["four"]);
+    assert_all_prefix_and_blank_tail(&term, file!(), line!(), &["four"]);
+    assert_eq!(term.screen().all_lines().len(), 3);
+    assert_cursor_coords(&term, 4, 0);
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_fallback_preserves_prompt_context_row() {
+    let mut term = TestTerm::new(6, 30, 10);
+    term.print("wezterm on main\r\n-> \r\nwezterm on main\r\n-> ");
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(&term, file!(), line!(), &["wezterm on main", "-> "]);
+    assert_all_prefix_and_blank_tail(&term, file!(), line!(), &["wezterm on main", "-> "]);
+    assert_eq!(term.screen().all_lines().len(), 6);
+    assert_cursor_coords(&term, 3, 1);
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_preserves_active_multiline_prompt() {
+    let mut term = TestTerm::new(5, 30, 10);
+    term.print("older output\r\nanother line");
+    term.print(prompt_block(&["~/w/p/wezterm", "prompt> "]));
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(&term, file!(), line!(), &["~/w/p/wezterm", "prompt> "]);
+    assert_all_prefix_and_blank_tail(&term, file!(), line!(), &["~/w/p/wezterm", "prompt> "]);
+    assert_eq!(term.screen().all_lines().len(), 5);
+    assert_cursor_coords(&term, 8, 1);
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_preserves_input_below_prompt() {
+    let mut term = TestTerm::new(5, 30, 10);
+    term.print("older output");
+    term.print(prompt_block(&["prompt> "]));
+    term.print("first line\r\nsecond line");
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(
+        &term,
+        file!(),
+        line!(),
+        &["prompt> first line", "second line"],
+    );
+    assert_all_prefix_and_blank_tail(
+        &term,
+        file!(),
+        line!(),
+        &["prompt> first line", "second line"],
+    );
+    assert_eq!(term.screen().all_lines().len(), 5);
+    assert_cursor_coords(&term, 11, 1);
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_uses_nearest_prompt_group() {
+    let mut term = TestTerm::new(6, 30, 10);
+    term.print(prompt_block(&["old prompt> "]));
+    term.print("old input\r\n");
+    term.print(prompt_block(&["~/w/p/wezterm", "new prompt> "]));
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(&term, file!(), line!(), &["~/w/p/wezterm", "new prompt> "]);
+    assert_all_prefix_and_blank_tail(&term, file!(), line!(), &["~/w/p/wezterm", "new prompt> "]);
+    assert_eq!(term.screen().all_lines().len(), 6);
+    assert_cursor_coords(&term, 12, 1);
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_discards_prior_empty_prompts() {
+    let mut term = TestTerm::new(6, 30, 10);
+    term.print(prompt_block(&["wezterm on main", "-> "]));
+    term.print(prompt_block(&["wezterm on main", "-> "]));
+    term.print(prompt_block(&["wezterm on main", "-> "]));
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(&term, file!(), line!(), &["wezterm on main", "-> "]);
+    assert_all_prefix_and_blank_tail(&term, file!(), line!(), &["wezterm on main", "-> "]);
+    assert_eq!(term.screen().all_lines().len(), 6);
+    assert_cursor_coords(&term, 3, 1);
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_preserves_prompt_rows_above_active_start() {
+    use wezterm_escape_parser::osc::{FinalTermPromptKind, FinalTermSemanticPrompt};
+
+    let mut term = TestTerm::new(5, 30, 10);
+    term.print("older output");
+    term.print(format!(
+        "\r\n{}~/w/p/wezterm\r\n{}prompt> {}",
+        OperatingSystemCommand::FinalTermSemanticPrompt(
+            FinalTermSemanticPrompt::StartPrompt(FinalTermPromptKind::Continuation)
+        ),
+        OperatingSystemCommand::FinalTermSemanticPrompt(
+            FinalTermSemanticPrompt::StartPrompt(FinalTermPromptKind::Initial)
+        ),
+        OperatingSystemCommand::FinalTermSemanticPrompt(
+            FinalTermSemanticPrompt::MarkEndOfPromptAndStartOfInputUntilNextMarker
+        ),
+    ));
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(&term, file!(), line!(), &["~/w/p/wezterm", "prompt> "]);
+    assert_all_prefix_and_blank_tail(&term, file!(), line!(), &["~/w/p/wezterm", "prompt> "]);
+    assert_eq!(term.screen().all_lines().len(), 5);
+    assert_cursor_coords(&term, 8, 1);
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_preserves_bottom_viewport_row() {
+    let mut term = TestTerm::new(3, 30, 10);
+    term.print("older output");
+    term.print(prompt_block(&["~/w/p/wezterm", "prompt> "]));
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(&term, file!(), line!(), &["~/w/p/wezterm", "prompt> "]);
+    assert_all_prefix_and_blank_tail(&term, file!(), line!(), &["~/w/p/wezterm", "prompt> "]);
+    assert_eq!(term.screen().all_lines().len(), 3);
+    assert_cursor_coords(&term, 8, 1);
 }
 
 #[test]

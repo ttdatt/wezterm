@@ -301,6 +301,7 @@ impl PaneDirection {
 pub enum ScrollbackEraseMode {
     ScrollbackOnly,
     ScrollbackAndViewport,
+    ScrollbackAndViewportKeepPrompt,
 }
 
 impl Default for ScrollbackEraseMode {

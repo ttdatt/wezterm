@@ -307,6 +307,11 @@ impl Pane for TermWizTerminalPane {
             ScrollbackEraseMode::ScrollbackAndViewport => {
                 self.terminal.lock().erase_scrollback_and_viewport();
             }
+            ScrollbackEraseMode::ScrollbackAndViewportKeepPrompt => {
+                self.terminal
+                    .lock()
+                    .erase_scrollback_and_viewport_keep_prompt();
+            }
         }
     }
 }

@@ -720,18 +720,25 @@ impl TerminalState {
         // we need to ensure that we increment the seqno in
         // order to correctly invalidate the display
         self.increment_seqno();
-        self.erase_in_display(EraseInDisplay::EraseScrollback);
+        let cursor_y = self.cursor.y;
+        self.erase_scrollback_and_viewport_preserve_visible_rows(cursor_y..cursor_y + 1, 0);
+    }
 
-        let row_index = self.screen.phys_row(self.cursor.y);
-        let rows = self.screen.lines_in_phys_range(row_index..row_index + 1);
+    pub fn erase_scrollback_and_viewport_keep_prompt(&mut self) {
+        // Since we may be called outside of perform_actions,
+        // we need to ensure that we increment the seqno in
+        // order to correctly invalidate the display
+        self.increment_seqno();
 
-        self.erase_in_display(EraseInDisplay::EraseDisplay);
-
-        for (idx, row) in rows.into_iter().enumerate() {
-            *self.screen.line_mut(idx) = row;
+        if let Some((rows_to_preserve, cursor_y)) =
+            self.active_prompt_rows_to_preserve_in_viewport()
+        {
+            self.erase_scrollback_and_viewport_preserve_visible_rows(rows_to_preserve, cursor_y);
+            return;
         }
 
-        self.cursor.y = 0;
+        let cursor_y = self.cursor.y;
+        self.erase_scrollback_and_viewport_preserve_visible_rows(cursor_y..cursor_y + 1, 0);
     }
 
     /// Discards the scrollback, leaving only the data that is present
@@ -742,6 +749,146 @@ impl TerminalState {
         // order to correctly invalidate the display
         self.increment_seqno();
         self.screen_mut().erase_scrollback();
+    }
+
+    fn erase_scrollback_and_viewport_preserve_visible_rows(
+        &mut self,
+        rows_to_preserve: Range<VisibleRowIndex>,
+        cursor_y: VisibleRowIndex,
+    ) {
+        self.erase_in_display(EraseInDisplay::EraseScrollback);
+
+        let phys_start = self.screen.phys_row(rows_to_preserve.start);
+        let phys_end = self.screen.phys_row(rows_to_preserve.end);
+        let rows = self.screen.lines_in_phys_range(phys_start..phys_end);
+
+        self.erase_in_display(EraseInDisplay::EraseDisplay);
+
+        for (idx, row) in rows.into_iter().enumerate() {
+            *self.screen.line_mut(idx) = row;
+        }
+
+        self.cursor.y = cursor_y;
+    }
+
+    fn active_prompt_rows_to_preserve_in_viewport(
+        &self,
+    ) -> Option<(Range<VisibleRowIndex>, VisibleRowIndex)> {
+        let viewport_rows = self.screen().physical_rows as VisibleRowIndex;
+        if viewport_rows <= 0 {
+            return None;
+        }
+
+        let phys_top = self.screen().phys_row(0);
+        let phys_bottom = self.screen().phys_row(viewport_rows);
+        let visible_lines = self.screen().lines_in_phys_range(phys_top..phys_bottom);
+
+        let prompt_start_rows: Vec<VisibleRowIndex> = visible_lines
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, line)| line.is_semantic_prompt_start().then_some(idx as VisibleRowIndex))
+            .collect();
+
+        if prompt_start_rows.is_empty() {
+            return Self::fallback_prompt_rows_to_preserve_in_viewport(
+                &visible_lines,
+                self.cursor.y,
+                viewport_rows,
+            );
+        }
+
+        let prompt_start = prompt_start_rows
+            .iter()
+            .copied()
+            .rfind(|row| *row <= self.cursor.y)?;
+        let block_floor = prompt_start_rows
+            .iter()
+            .copied()
+            .rfind(|row| *row < prompt_start)
+            .map(|row| row + 1)
+            .unwrap_or(0);
+        let mut prompt_block_start = prompt_start;
+        while prompt_block_start > block_floor {
+            let prev_row = prompt_block_start - 1;
+            if !Self::line_has_visible_prompt_content(&visible_lines[prev_row as usize]) {
+                break;
+            }
+            if prev_row > 0 && visible_lines[prev_row as usize - 1].is_semantic_prompt_start() {
+                break;
+            }
+            prompt_block_start = prev_row;
+        }
+        let next_prompt_start = prompt_start_rows
+            .iter()
+            .copied()
+            .find(|row| *row > prompt_start)
+            .unwrap_or(viewport_rows);
+        let prompt_end = (prompt_start..next_prompt_start)
+            .rev()
+            .find(|row| Self::line_has_visible_prompt_content(&visible_lines[*row as usize]))?;
+        let preserve_end = self.cursor.y.max(prompt_end);
+        let cursor_y = self.cursor.y - prompt_block_start;
+
+        Some((prompt_block_start..preserve_end + 1, cursor_y))
+    }
+
+    fn fallback_prompt_rows_to_preserve_in_viewport(
+        visible_lines: &[Line],
+        cursor_y: VisibleRowIndex,
+        viewport_rows: VisibleRowIndex,
+    ) -> Option<(Range<VisibleRowIndex>, VisibleRowIndex)> {
+        if cursor_y <= 0 || cursor_y >= viewport_rows {
+            return None;
+        }
+
+        let prompt_row = &visible_lines[cursor_y as usize];
+        if !Self::line_looks_like_prompt_input_row(prompt_row) {
+            return None;
+        }
+
+        let context_row = cursor_y - 1;
+        let context_line = &visible_lines[context_row as usize];
+        if !Self::line_has_visible_non_blank_content(context_line) {
+            return None;
+        }
+
+        Some((context_row..cursor_y + 1, 1))
+    }
+
+    fn mark_current_line_as_prompt_start(&mut self) {
+        let line_idx = self.screen.phys_row(self.cursor.y);
+        self.screen
+            .line_mut(line_idx)
+            .set_semantic_prompt_start(true, self.seqno);
+    }
+
+    fn line_has_visible_prompt_content(line: &Line) -> bool {
+        line.visible_cells().any(|cell| {
+            cell.attrs().semantic_type() == SemanticType::Prompt && !cell.str().trim().is_empty()
+        })
+    }
+
+    fn line_has_visible_non_blank_content(line: &Line) -> bool {
+        line.visible_cells().any(|cell| !cell.str().trim().is_empty())
+    }
+
+    fn line_looks_like_prompt_input_row(line: &Line) -> bool {
+        let mut non_blank_cells = 0usize;
+        for cell in line.visible_cells() {
+            let text = cell.str();
+            if text.trim().is_empty() {
+                continue;
+            }
+            non_blank_cells += 1;
+            if text.chars().any(|c| c.is_alphanumeric()) {
+                return false;
+            }
+            if non_blank_cells > 8 {
+                return false;
+            }
+        }
+
+        non_blank_cells > 0
     }
 
     /// Returns true if the associated application has enabled any of the

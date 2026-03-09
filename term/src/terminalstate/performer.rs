@@ -21,7 +21,8 @@ use wezterm_escape_parser::csi::{
     CharacterPath, EraseInDisplay, Keyboard, KittyKeyboardFlags, KittyKeyboardMode,
 };
 use wezterm_escape_parser::osc::{
-    ChangeColorPair, ColorOrQuery, FinalTermSemanticPrompt, ITermProprietary,
+    ChangeColorPair, ColorOrQuery, FinalTermPromptKind, FinalTermSemanticPrompt,
+    ITermProprietary,
     ITermUnicodeVersionOp, Selection,
 };
 use wezterm_escape_parser::{
@@ -872,17 +873,22 @@ impl<'a> Performer<'a> {
             ) => {
                 self.fresh_line();
                 self.pen.set_semantic_type(SemanticType::Prompt);
+                self.mark_current_line_as_prompt_start();
             }
             OperatingSystemCommand::FinalTermSemanticPrompt(
-                FinalTermSemanticPrompt::StartPrompt(_),
+                FinalTermSemanticPrompt::StartPrompt(kind),
             ) => {
                 self.pen.set_semantic_type(SemanticType::Prompt);
+                if kind == FinalTermPromptKind::Initial {
+                    self.mark_current_line_as_prompt_start();
+                }
             }
             OperatingSystemCommand::FinalTermSemanticPrompt(
                 FinalTermSemanticPrompt::MarkEndOfCommandWithFreshLine { .. },
             ) => {
                 self.fresh_line();
                 self.pen.set_semantic_type(SemanticType::Prompt);
+                self.mark_current_line_as_prompt_start();
             }
             OperatingSystemCommand::FinalTermSemanticPrompt(
                 FinalTermSemanticPrompt::MarkEndOfPromptAndStartOfInputUntilNextMarker { .. },

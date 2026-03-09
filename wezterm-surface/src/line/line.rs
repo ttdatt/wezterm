@@ -419,6 +419,15 @@ impl Line {
         )
     }
 
+    pub fn is_semantic_prompt_start(&self) -> bool {
+        self.bits.contains(LineBits::SEMANTIC_PROMPT_START)
+    }
+
+    pub fn set_semantic_prompt_start(&mut self, is_start: bool, seqno: SequenceNo) {
+        self.bits.set(LineBits::SEMANTIC_PROMPT_START, is_start);
+        self.update_last_change_seqno(seqno);
+    }
+
     fn invalidate_zones(&mut self) {
         self.zones.clear();
     }

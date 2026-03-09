@@ -774,6 +774,15 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Edit"],
             icon: Some("cod_clear_all"),
         },
+        ClearScrollback(ScrollbackEraseMode::ScrollbackAndViewportKeepPrompt) => CommandDef {
+            brief: "Clear the scrollback and viewport, keeping prompt".into(),
+            doc: "Removes all prior content while preserving the current prompt when possible"
+                .into(),
+            keys: vec![],
+            args: &[ArgType::ActivePane],
+            menubar: &["Edit"],
+            icon: Some("cod_clear_all"),
+        },
         Search(Pattern::CurrentSelectionOrEmptyString) => CommandDef {
             brief: "Search pane output".into(),
             doc: "Enters the search mode UI for the current pane".into(),
@@ -2049,6 +2058,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         PasteFrom(ClipboardPasteSource::Clipboard),
         ClearScrollback(ScrollbackEraseMode::ScrollbackOnly),
         ClearScrollback(ScrollbackEraseMode::ScrollbackAndViewport),
+        ClearScrollback(ScrollbackEraseMode::ScrollbackAndViewportKeepPrompt),
         QuickSelect,
         CharSelect(CharSelectArguments::default()),
         ActivateCopyMode,

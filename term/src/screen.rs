@@ -442,10 +442,14 @@ impl Screen {
         seqno: SequenceNo,
         bidi_mode: BidiMode,
     ) {
+        let clears_entire_line = cols.start == 0 && cols.end >= self.physical_cols;
         let line_idx = self.phys_row(y);
         let line = self.line_mut(line_idx);
         if cols.start == 0 {
             bidi_mode.apply_to_line(line, seqno);
+        }
+        if clears_entire_line {
+            line.set_semantic_prompt_start(false, seqno);
         }
         line.fill_range(cols, &Cell::blank_with_attrs(attr.clone()), seqno);
     }

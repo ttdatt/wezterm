@@ -49,5 +49,8 @@ bitflags! {
         /// Otherwise, the auto-detect direction is used, falling back
         /// to the direction specified by the RTL bit.
         const AUTO_DETECT_DIRECTION = 1<<8;
+
+        /// true if this line starts an OSC 133 initial prompt block.
+        const SEMANTIC_PROMPT_START = 1<<9;
     }
 }

@@ -27,6 +27,13 @@ config.keys = {
     mods = 'CTRL|SHIFT',
     action = act.ClearScrollback 'ScrollbackAndViewport',
   },
+  -- Clears the scrollback and viewport while preserving the current
+  -- prompt when WezTerm can identify it.
+  {
+    key = 'K',
+    mods = 'CTRL|SHIFT',
+    action = act.ClearScrollback 'ScrollbackAndViewportKeepPrompt',
+  },
   -- Clears the scrollback and viewport, and then sends CTRL-L to ask the
   -- shell to redraw its prompt
   {
@@ -39,3 +46,15 @@ config.keys = {
   },
 }
 ```
+
+`ScrollbackAndViewportKeepPrompt` prefers OSC 133 semantic prompt markers to
+find the active prompt block in the viewport. With shell integration enabled,
+this allows multi-line prompt content such as working directory or right prompt
+information to remain visible after clearing.
+
+If the pane does not provide semantic prompt markers, WezTerm also applies a
+small fallback heuristic for prompt layouts such as fish + Starship, where the
+prompt context is on one row and the editable prompt is on the next row.
+
+If WezTerm cannot identify prompt context, it falls back to the same behavior
+as `ScrollbackAndViewport`.
