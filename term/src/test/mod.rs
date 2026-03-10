@@ -597,6 +597,42 @@ fn erase_scrollback_keep_prompt_fallback_preserves_prompt_context_row() {
 }
 
 #[test]
+fn erase_scrollback_keep_prompt_fallback_preserves_typed_input_context_row() {
+    let mut term = TestTerm::new(6, 30, 10);
+    term.print("older output\r\nwezterm on main\r\n-> cargo test");
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(
+        &term,
+        file!(),
+        line!(),
+        &["wezterm on main", "-> cargo test"],
+    );
+    assert_all_prefix_and_blank_tail(
+        &term,
+        file!(),
+        line!(),
+        &["wezterm on main", "-> cargo test"],
+    );
+    assert_eq!(term.screen().all_lines().len(), 6);
+    assert_cursor_coords(&term, 13, 1);
+}
+
+#[test]
+fn erase_scrollback_keep_prompt_fallback_does_not_preserve_plain_input_context_row() {
+    let mut term = TestTerm::new(6, 30, 10);
+    term.print("wezterm on main\r\ncargo test");
+
+    term.erase_scrollback_and_viewport_keep_prompt();
+
+    assert_visible_prefix_and_blank_tail(&term, file!(), line!(), &["cargo test"]);
+    assert_all_prefix_and_blank_tail(&term, file!(), line!(), &["cargo test"]);
+    assert_eq!(term.screen().all_lines().len(), 6);
+    assert_cursor_coords(&term, 10, 0);
+}
+
+#[test]
 fn erase_scrollback_keep_prompt_preserves_active_multiline_prompt() {
     let mut term = TestTerm::new(5, 30, 10);
     term.print("older output\r\nanother line");

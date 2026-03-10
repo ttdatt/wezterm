@@ -841,8 +841,8 @@ impl TerminalState {
             return None;
         }
 
-        let prompt_row = &visible_lines[cursor_y as usize];
-        if !Self::line_looks_like_prompt_input_row(prompt_row) {
+        let current_row = &visible_lines[cursor_y as usize];
+        if !Self::line_looks_like_prompt_input_row(current_row) {
             return None;
         }
 
@@ -873,22 +873,66 @@ impl TerminalState {
     }
 
     fn line_looks_like_prompt_input_row(line: &Line) -> bool {
-        let mut non_blank_cells = 0usize;
+        let mut prompt_prefix_cells = 0usize;
+        let mut saw_prompt_prefix = false;
+        let mut saw_prompt_symbol = false;
+        let mut past_prompt_prefix = false;
+
         for cell in line.visible_cells() {
             let text = cell.str();
             if text.trim().is_empty() {
+                if saw_prompt_prefix {
+                    past_prompt_prefix = true;
+                }
                 continue;
             }
-            non_blank_cells += 1;
-            if text.chars().any(|c| c.is_alphanumeric()) {
-                return false;
+
+            if !past_prompt_prefix {
+                if text.chars().any(|c| c.is_alphanumeric()) {
+                    return saw_prompt_prefix && saw_prompt_symbol;
+                }
+
+                saw_prompt_prefix = true;
+                prompt_prefix_cells += 1;
+                if prompt_prefix_cells > 8 {
+                    return false;
+                }
+                if Self::text_contains_prompt_symbol(text) {
+                    saw_prompt_symbol = true;
+                }
+                continue;
             }
-            if non_blank_cells > 8 {
-                return false;
-            }
+
+            return saw_prompt_symbol;
         }
 
-        non_blank_cells > 0
+        saw_prompt_prefix && saw_prompt_symbol
+    }
+
+    fn text_contains_prompt_symbol(text: &str) -> bool {
+        text.chars().any(|c| {
+            matches!(
+                c,
+                '>'
+                    | '<'
+                    | '$'
+                    | '#'
+                    | '%'
+                    | '\u{276f}'
+                    | '\u{276e}'
+                    | '\u{279c}'
+                    | '\u{25b6}'
+                    | '\u{25b7}'
+                    | '\u{2192}'
+                    | '\u{00bb}'
+                    | '\u{203a}'
+                    | '\u{03bb}'
+                    | '\u{e0b0}'
+                    | '\u{e0b1}'
+                    | '\u{e0b2}'
+                    | '\u{e0b3}'
+            )
+        })
     }
 
     /// Returns true if the associated application has enabled any of the
