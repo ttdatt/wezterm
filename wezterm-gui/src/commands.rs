@@ -379,6 +379,7 @@ impl CommandDef {
     #[cfg(target_os = "macos")]
     pub fn recreate_menubar(config: &ConfigHandle) {
         use window::os::macos::menu::*;
+        use window::os::macos::supports_default_terminal_menu_item;
 
         let inputmap = InputMap::new(config);
 
@@ -466,6 +467,15 @@ impl CommandDef {
                         services_item.set_sub_menu(&services_menu);
 
                         menu.add_item(&MenuItem::new_separator());
+
+                        if supports_default_terminal_menu_item() {
+                            let default_terminal_item = MenuItem::new_with(
+                                "Make WezTerm the Default Terminal",
+                                Some(sel!(weztermSetAsDefaultTerminal:)),
+                                "",
+                            );
+                            menu.add_item(&default_terminal_item);
+                        }
                     } else if cmd.menubar[0] == "Help" {
                         menu.assign_as_help_menu();
                     }

@@ -38,7 +38,9 @@ impl Connection {
             ns_app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
 
             let delegate = create_app_delegate();
-            let () = msg_send![ns_app, setDelegate: delegate];
+            let delegate_id: id = *delegate;
+            let () = msg_send![ns_app, setDelegate: delegate_id];
+            let () = msg_send![ns_app, setServicesProvider: delegate_id];
 
             let conn = Self {
                 ns_app,

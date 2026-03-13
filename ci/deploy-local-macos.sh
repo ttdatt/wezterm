@@ -53,6 +53,7 @@ fi
 
 export TAG_NAME
 export MACOS_CODESIGN_IDENTITY="$IDENTITY"
+export MACOS_BUILD_APP_ONLY=1
 
 ./ci/deploy.sh "$TARGET_DIR"
 
@@ -67,4 +68,4 @@ else
   exit 1
 fi
 
-echo "Wrote: $ZIPDIR.zip"
+echo "Wrote: $APP"

@@ -4,7 +4,7 @@ use crate::termwindow::TermWindowNotif;
 use crate::TermWindow;
 use ::window::*;
 use anyhow::{Context, Error};
-use config::keyassignment::{KeyAssignment, SpawnCommand};
+use config::keyassignment::{KeyAssignment, SpawnCommand, SpawnTabDomain};
 use config::{ConfigSubscription, NotificationHandling};
 use mux::client::ClientId;
 use mux::window::WindowId as MuxWindowId;
@@ -317,6 +317,40 @@ impl GuiFrontEnd {
                     }
                 }
             }
+            ApplicationEvent::SpawnCommandInNewWindowOrTab { cwd, target } => {
+                let config = config::configuration();
+                let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
+                let size =
+                    config.initial_size(dpi as u32, crate::cell_pixel_dims(&config, dpi).ok());
+                let term_config = Arc::new(config::TermConfig::with_config(config));
+                let spawn = SpawnCommand {
+                    cwd: Some(cwd),
+                    domain: SpawnTabDomain::DomainName("local".to_string()),
+                    ..Default::default()
+                };
+
+                let src_window_id = try_front_end().and_then(|front_end| {
+                    if target == ApplicationSpawnTarget::Tab {
+                        front_end.preferred_mux_window_id()
+                    } else {
+                        None
+                    }
+                });
+
+                let spawn_where = match (target, src_window_id) {
+                    (ApplicationSpawnTarget::Window, _) => SpawnWhere::NewWindow,
+                    (ApplicationSpawnTarget::Tab, Some(_)) => SpawnWhere::NewTab,
+                    (ApplicationSpawnTarget::Tab, None) => SpawnWhere::NewWindow,
+                };
+
+                crate::spawn::spawn_command_impl(
+                    &spawn,
+                    spawn_where,
+                    size,
+                    src_window_id,
+                    term_config,
+                );
+            }
         }
     }
 
@@ -483,6 +517,13 @@ impl GuiFrontEnd {
             }
         }
         None
+    }
+
+    fn preferred_mux_window_id(&self) -> Option<MuxWindowId> {
+        let mux = Mux::get();
+        mux.resolve_focused_pane(&self.client_id)
+            .map(|(_, window_id, _, _)| window_id)
+            .or_else(|| self.known_windows.borrow().values().next().copied())
     }
 }
 

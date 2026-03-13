@@ -489,6 +489,17 @@ async fn async_run_terminal_gui(
             trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
         }
     }
+
+    #[cfg(target_os = "macos")]
+    if cmd.is_none()
+        && !opts.attach
+        && opts.domain.is_none()
+        && opts.workspace.is_none()
+        && opts.position.is_none()
+    {
+        return Ok(());
+    }
+
     spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace).await
 }
 

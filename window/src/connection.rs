@@ -4,6 +4,7 @@ use anyhow::Result as Fallible;
 use config::keyassignment::KeyAssignment;
 use config::DimensionContext;
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Mutex;
 
@@ -19,11 +20,21 @@ pub fn shutdown() {
     CONN.with(|m| drop(m.borrow_mut().take()));
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplicationSpawnTarget {
+    Tab,
+    Window,
+}
+
 #[derive(Debug)]
 pub enum ApplicationEvent {
     /// The system wants to open a command in the terminal
     OpenCommandScript(String),
     PerformKeyAssignment(KeyAssignment),
+    SpawnCommandInNewWindowOrTab {
+        cwd: PathBuf,
+        target: ApplicationSpawnTarget,
+    },
 }
 
 pub trait ConnectionOps {

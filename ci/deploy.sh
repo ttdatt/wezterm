@@ -5,6 +5,7 @@ set -e
 TARGET_DIR=${1:-target}
 
 TAG_NAME=${TAG_NAME:-$(git -c "core.abbrev=8" show -s "--format=%cd-%h" "--date=format:%Y%m%d-%H%M%S")}
+MACOS_BUILD_APP_ONLY=${MACOS_BUILD_APP_ONLY:-0}
 
 HERE=$(pwd)
 
@@ -99,18 +100,20 @@ case $OSTYPE in
       security delete-keychain build.keychain || true
     fi
 
-    set -x
-    zip -r $zipname $zipdir
-    set +x
+    if [[ "$MACOS_BUILD_APP_ONLY" != "1" ]] ; then
+      set -x
+      zip -r $zipname $zipdir
+      set +x
 
-    if [ -n "$MACOS_TEAM_ID" ] ; then
-      echo "Notarize"
-      xcrun notarytool submit $zipname --wait --team-id "$MACOS_TEAM_ID" --apple-id "$MACOS_APPLEID" --password "$MACOS_APP_PW"
+      if [ -n "$MACOS_TEAM_ID" ] ; then
+        echo "Notarize"
+        xcrun notarytool submit $zipname --wait --team-id "$MACOS_TEAM_ID" --apple-id "$MACOS_APPLEID" --password "$MACOS_APP_PW"
+      fi
+      set -x
+
+      SHA256=$(shasum -a 256 $zipname | cut -d' ' -f1)
+      sed -e "s/@TAG@/$TAG_NAME/g" -e "s/@SHA256@/$SHA256/g" < ci/wezterm-homebrew-macos.rb.template > wezterm.rb
     fi
-    set -x
-
-    SHA256=$(shasum -a 256 $zipname | cut -d' ' -f1)
-    sed -e "s/@TAG@/$TAG_NAME/g" -e "s/@SHA256@/$SHA256/g" < ci/wezterm-homebrew-macos.rb.template > wezterm.rb
 
     ;;
   msys|cygwin)
