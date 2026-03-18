@@ -1,4 +1,4 @@
-use crate::connection::ConnectionOps;
+use crate::connection::{dispatch_application_event, ConnectionOps};
 use crate::macos::menu::RepresentedItem;
 use crate::macos::{nsstring, nsstring_to_str};
 use crate::menu::{Menu, MenuItem};
@@ -155,29 +155,29 @@ fn dispatch_service_open(pasteboard: id, target: ApplicationSpawnTarget, error: 
         return;
     }
 
-    let Some(conn) = Connection::get() else {
-        set_service_error(error, "WezTerm was not ready to open a tab or window yet.");
-        return;
-    };
-
     for cwd in dirs {
-        conn.dispatch_app_event(ApplicationEvent::SpawnCommandInNewWindowOrTab {
+        dispatch_application_event(ApplicationEvent::SpawnCommandInNewWindowOrTab {
             cwd,
             target,
         });
     }
 }
 
-fn app_window_count() -> NSInteger {
-    unsafe {
-        let windows: id = msg_send![NSApp(), windows];
-        msg_send![windows, count]
+fn has_open_window() -> bool {
+    if let Some(conn) = Connection::get() {
+        !conn.windows.borrow().is_empty()
+    } else {
+        unsafe {
+            let windows: id = msg_send![NSApp(), windows];
+            let count: NSInteger = msg_send![windows, count];
+            count != 0
+        }
     }
 }
 
 fn should_skip_initial_window_for_service(this: &Object) -> bool {
     let became_active: BOOL = unsafe { *this.get_ivar("application_has_become_active") };
-    became_active == NO && app_window_count() == 0
+    became_active == NO && !has_open_window()
 }
 
 extern "C" fn application_should_terminate(
@@ -262,12 +262,10 @@ extern "C" fn application_did_become_active(
         return;
     }
 
-    if app_window_count() == 0 {
-        if let Some(conn) = Connection::get() {
-            conn.dispatch_app_event(ApplicationEvent::PerformKeyAssignment(
-                KeyAssignment::SpawnWindow,
-            ));
-        }
+    if !has_open_window() {
+        dispatch_application_event(ApplicationEvent::PerformKeyAssignment(
+            KeyAssignment::SpawnWindow,
+        ));
     }
 }
 
@@ -277,7 +275,7 @@ extern "C" fn application_open_untitled_file(
     _app: *mut Object,
 ) -> BOOL {
     log::debug!("application_open_untitled_file");
-    if Connection::get().is_some() { YES } else { NO }
+    YES
 }
 
 extern "C" fn application_should_handle_reopen(
@@ -286,7 +284,7 @@ extern "C" fn application_should_handle_reopen(
     _app: *mut Object,
     has_visible_windows: BOOL,
 ) -> BOOL {
-    if has_visible_windows == YES || app_window_count() != 0 {
+    if has_visible_windows == YES || has_open_window() {
         return YES;
     }
 
@@ -295,11 +293,9 @@ extern "C" fn application_should_handle_reopen(
         return YES;
     }
 
-    if let Some(conn) = Connection::get() {
-        conn.dispatch_app_event(ApplicationEvent::PerformKeyAssignment(
-            KeyAssignment::SpawnWindow,
-        ));
-    }
+    dispatch_application_event(ApplicationEvent::PerformKeyAssignment(
+        KeyAssignment::SpawnWindow,
+    ));
 
     NO
 }
@@ -315,9 +311,7 @@ extern "C" fn wezterm_perform_key_assignment(
     log::debug!("wezterm_perform_key_assignment {action:?}",);
     match action {
         Some(RepresentedItem::KeyAssignment(action)) => {
-            if let Some(conn) = Connection::get() {
-                conn.dispatch_app_event(ApplicationEvent::PerformKeyAssignment(action));
-            }
+            dispatch_application_event(ApplicationEvent::PerformKeyAssignment(action));
         }
         None => {}
     }
@@ -332,10 +326,8 @@ extern "C" fn application_open_file(
     let launched: BOOL = unsafe { *this.get_ivar("launched") };
     if launched == YES {
         let file_name = unsafe { nsstring_to_str(file_name) }.to_string();
-        if let Some(conn) = Connection::get() {
-            log::debug!("application_open_file {file_name}");
-            conn.dispatch_app_event(ApplicationEvent::OpenCommandScript(file_name));
-        }
+        log::debug!("application_open_file {file_name}");
+        dispatch_application_event(ApplicationEvent::OpenCommandScript(file_name));
     }
 }
 

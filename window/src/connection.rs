@@ -12,9 +12,33 @@ thread_local! {
     static CONN: RefCell<Option<Rc<Connection>>> = RefCell::new(None);
 }
 
-fn nop_event_handler(_event: ApplicationEvent) {}
+static EVENT_HANDLER: Mutex<Option<fn(ApplicationEvent)>> = Mutex::new(None);
+static PENDING_APP_EVENTS: Mutex<Vec<ApplicationEvent>> = Mutex::new(vec![]);
 
-static EVENT_HANDLER: Mutex<fn(ApplicationEvent)> = Mutex::new(nop_event_handler);
+pub fn set_application_event_handler(func: fn(ApplicationEvent)) {
+    {
+        let mut handler = EVENT_HANDLER.lock().unwrap();
+        *handler = Some(func);
+    }
+
+    let pending = {
+        let mut pending = PENDING_APP_EVENTS.lock().unwrap();
+        pending.drain(..).collect::<Vec<_>>()
+    };
+
+    for event in pending {
+        func(event);
+    }
+}
+
+pub fn dispatch_application_event(event: ApplicationEvent) {
+    let handler = *EVENT_HANDLER.lock().unwrap();
+    if let Some(func) = handler {
+        func(event);
+    } else {
+        PENDING_APP_EVENTS.lock().unwrap().push(event);
+    }
+}
 
 pub fn shutdown() {
     CONN.with(|m| drop(m.borrow_mut().take()));
@@ -51,13 +75,11 @@ pub trait ConnectionOps {
     fn name(&self) -> String;
 
     fn set_event_handler(&self, func: fn(ApplicationEvent)) {
-        let mut handler = EVENT_HANDLER.lock().unwrap();
-        *handler = func;
+        set_application_event_handler(func);
     }
 
     fn dispatch_app_event(&self, event: ApplicationEvent) {
-        let func = EVENT_HANDLER.lock().unwrap();
-        func(event);
+        dispatch_application_event(event);
     }
 
     fn default_dpi(&self) -> f64 {
