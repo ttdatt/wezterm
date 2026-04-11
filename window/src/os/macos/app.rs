@@ -8,8 +8,6 @@ use cocoa::base::{id, nil};
 use cocoa::foundation::{NSArray, NSInteger, NSURL};
 use config::keyassignment::KeyAssignment;
 use config::WindowCloseConfirmation;
-use core_foundation::base::TCFType;
-use core_foundation::string::{CFString, CFStringRef};
 use objc::declare::ClassDecl;
 use objc::rc::StrongPtr;
 use objc::runtime::{Class, Object, Sel, BOOL, NO, YES};
@@ -19,20 +17,9 @@ use std::path::{Path, PathBuf};
 
 const CLS_NAME: &str = "WezTermAppDelegate";
 const UNIX_EXECUTABLE_UTI: &str = "public.unix-executable";
-const LS_ROLES_ALL: u32 = 0xffff_ffff;
 
-#[link(name = "CoreServices", kind = "framework")]
-extern "C" {
-    fn LSCopyDefaultRoleHandlerForContentType(
-        in_content_type: CFStringRef,
-        in_role: u32,
-    ) -> CFStringRef;
-    fn LSSetDefaultRoleHandlerForContentType(
-        in_content_type: CFStringRef,
-        in_role: u32,
-        in_handler_bundle_id: CFStringRef,
-    ) -> i32;
-}
+#[link(name = "UniformTypeIdentifiers", kind = "framework")]
+extern "C" {}
 
 fn show_warning_alert(message: &str, info: &str) {
     unsafe {
@@ -44,33 +31,45 @@ fn show_warning_alert(message: &str, info: &str) {
     }
 }
 
-fn bundle_identifier() -> Option<String> {
+fn app_bundle_url() -> Option<id> {
     unsafe {
         let bundle: id = msg_send![class!(NSBundle), mainBundle];
-        let bundle_id: id = msg_send![bundle, bundleIdentifier];
-        if bundle_id.is_null() {
+        let bundle_url: id = msg_send![bundle, bundleURL];
+        if bundle_url.is_null() {
             None
         } else {
-            Some(nsstring_to_str(bundle_id).to_string())
+            Some(bundle_url)
         }
     }
 }
 
-fn default_terminal_bundle_identifier() -> Option<String> {
-    let uti = CFString::new(UNIX_EXECUTABLE_UTI);
+fn unix_executable_content_type() -> Option<id> {
     unsafe {
-        let bundle_id =
-            LSCopyDefaultRoleHandlerForContentType(uti.as_concrete_TypeRef(), LS_ROLES_ALL);
-        if bundle_id.is_null() {
+        let content_type: id =
+            msg_send![class!(UTType), typeWithIdentifier: *nsstring(UNIX_EXECUTABLE_UTI)];
+        if content_type.is_null() {
             None
         } else {
-            Some(CFString::wrap_under_create_rule(bundle_id).to_string())
+            Some(content_type)
+        }
+    }
+}
+
+fn default_terminal_application_url() -> Option<id> {
+    let content_type = unix_executable_content_type()?;
+    unsafe {
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let app_url: id = msg_send![workspace, URLForApplicationToOpenContentType: content_type];
+        if app_url.is_null() {
+            None
+        } else {
+            Some(app_url)
         }
     }
 }
 
 pub fn supports_default_terminal_menu_item() -> bool {
-    bundle_identifier().is_some()
+    app_bundle_url().is_some() && unix_executable_content_type().is_some()
 }
 
 fn normalize_service_path(path: &Path) -> PathBuf {
@@ -388,31 +387,30 @@ extern "C" fn wezterm_set_as_default_terminal(
     _sel: Sel,
     _menu_item: *mut Object,
 ) {
-    let Some(bundle_id) = bundle_identifier() else {
+    let Some(bundle_url) = app_bundle_url() else {
         show_warning_alert(
             "Failed to Set Default Terminal",
-            "WezTerm could not determine its bundle identifier, so it could not be set as the default terminal application.",
+            "WezTerm could not determine its application bundle URL, so it could not be set as the default terminal application.",
         );
         return;
     };
 
-    let uti = CFString::new(UNIX_EXECUTABLE_UTI);
-    let bundle_id = CFString::new(&bundle_id);
-    let status = unsafe {
-        LSSetDefaultRoleHandlerForContentType(
-            uti.as_concrete_TypeRef(),
-            LS_ROLES_ALL,
-            bundle_id.as_concrete_TypeRef(),
-        )
-    };
-
-    if status != 0 {
+    let Some(content_type) = unix_executable_content_type() else {
         show_warning_alert(
             "Failed to Set Default Terminal",
-            &format!(
-                "WezTerm could not be set as the default terminal application.\n\nLaunchServices error: {status}"
-            ),
+            "WezTerm could not resolve the Unix executable content type, so it could not be set as the default terminal application.",
         );
+        return;
+    };
+
+    unsafe {
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let () = msg_send![
+            workspace,
+            setDefaultApplicationAtURL: bundle_url
+            toOpenContentType: content_type
+            completionHandler: nil
+        ];
     }
 }
 
@@ -424,12 +422,13 @@ extern "C" fn validate_menu_item(
     let action: Sel = unsafe { msg_send![menu_item, action] };
 
     if action == sel!(weztermSetAsDefaultTerminal:) {
-        let Some(bundle_id) = bundle_identifier() else {
+        let Some(bundle_url) = app_bundle_url() else {
             return NO;
         };
 
-        if let Some(default_bundle_id) = default_terminal_bundle_identifier() {
-            if default_bundle_id == bundle_id {
+        if let Some(default_url) = default_terminal_application_url() {
+            let is_equal: BOOL = unsafe { msg_send![default_url, isEqual: bundle_url] };
+            if is_equal == YES {
                 return NO;
             }
         }

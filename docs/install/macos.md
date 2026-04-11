@@ -1,8 +1,6 @@
 ## Installing on macOS
 
-The CI system builds the package on macOS Big Sur and should run on systems as
-"old" as Mojave.  It may run on earlier versions of macOS, but that has not
-been tested.
+WezTerm requires macOS 12 (Monterey) or newer.
 
 Starting with version 20210203-095643-70a364eb, WezTerm is a Universal binary
 with support for both Apple Silicon and Intel hardware.
@@ -65,4 +63,3 @@ WezTerm is also available via [MacPorts](https://ports.macports.org/port/wezterm
 $ sudo port selfupdate
 $ sudo port install wezterm
 ```
-
