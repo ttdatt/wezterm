@@ -340,7 +340,7 @@ pub struct Config {
     #[dynamic(default = "default_harfbuzz_features")]
     pub harfbuzz_features: Vec<String>,
 
-    #[dynamic(default)]
+    #[dynamic(default = "default_front_end")]
     pub front_end: FrontEndSelection,
 
     /// Whether to select the higher powered discrete GPU when
@@ -1887,6 +1887,14 @@ fn default_update_interval() -> u64 {
 
 fn default_prefer_egl() -> bool {
     !cfg!(windows)
+}
+
+fn default_front_end() -> FrontEndSelection {
+    if cfg!(target_os = "macos") {
+        FrontEndSelection::WebGpu
+    } else {
+        FrontEndSelection::OpenGL
+    }
 }
 
 fn default_clean_exits() -> Vec<u32> {

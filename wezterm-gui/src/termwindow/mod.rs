@@ -567,7 +567,7 @@ impl TermWindow {
         match RenderState::new(ctx, &self.fonts, &self.render_metrics, ATLAS_SIZE) {
             Ok(render_state) => {
                 log::debug!(
-                    "OpenGL initialized! {} wezterm version: {}",
+                    "Renderer initialized! {} wezterm version: {}",
                     render_info,
                     config::wezterm_version(),
                 );
@@ -579,7 +579,7 @@ impl TermWindow {
         }
 
         if self.render_state.is_none() {
-            panic!("No OpenGL");
+            panic!("No renderer");
         }
 
         Ok(())
@@ -854,6 +854,13 @@ impl TermWindow {
                 true
             }
         });
+
+        #[cfg(target_os = "macos")]
+        if config.front_end != FrontEndSelection::WebGpu {
+            anyhow::bail!(
+                "macOS in this fork only supports front_end = \"WebGpu\""
+            );
+        }
 
         let gl = match config.front_end {
             FrontEndSelection::WebGpu => None,

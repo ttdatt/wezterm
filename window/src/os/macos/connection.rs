@@ -14,17 +14,38 @@ use cocoa::base::{id, nil};
 use cocoa::foundation::{NSArray, NSInteger};
 use objc::runtime::Object;
 use objc::*;
-use serde::Deserialize;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct NSOperatingSystemVersion {
+    major_version: NSInteger,
+    minor_version: NSInteger,
+    patch_version: NSInteger,
+}
+
+fn operating_system_version() -> NSOperatingSystemVersion {
+    unsafe {
+        let process_info: id = msg_send![class!(NSProcessInfo), processInfo];
+        msg_send![process_info, operatingSystemVersion]
+    }
+}
+
+fn operating_system_version_string() -> String {
+    unsafe {
+        let process_info: id = msg_send![class!(NSProcessInfo), processInfo];
+        let version: id = msg_send![process_info, operatingSystemVersionString];
+        super::nsstring_to_str(version).to_string()
+    }
+}
+
 pub struct Connection {
     ns_app: id,
     pub(crate) windows: RefCell<HashMap<usize, Rc<RefCell<WindowInner>>>>,
     pub(crate) next_window_id: AtomicUsize,
-    pub(crate) gl_connection: RefCell<Option<Rc<crate::egl::GlConnection>>>,
 }
 
 impl Connection {
@@ -32,6 +53,16 @@ impl Connection {
         // Ensure that the SPAWN_QUEUE is created; it will have nothing
         // to run right now.
         SPAWN_QUEUE.run();
+
+        let version = operating_system_version();
+        if version.major_version < 15 {
+            anyhow::bail!(
+                "This WezTerm fork requires macOS 15 or newer; found macOS {}.{}.{}",
+                version.major_version,
+                version.minor_version,
+                version.patch_version
+            );
+        }
 
         unsafe {
             let ns_app = NSApp();
@@ -46,7 +77,6 @@ impl Connection {
                 ns_app,
                 windows: RefCell::new(HashMap::new()),
                 next_window_id: AtomicUsize::new(1),
-                gl_connection: RefCell::new(None),
             };
             Ok(conn)
         }
@@ -85,32 +115,9 @@ impl Connection {
     }
 }
 
-/// `/System/Library/CoreServices/SystemVersion.plist`
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
-struct SoftwareVersion {
-    product_build_version: String,
-    product_user_visible_version: String,
-    product_name: String,
-}
-
-impl SoftwareVersion {
-    fn load() -> anyhow::Result<Self> {
-        let vers: Self = plist::from_file("/System/Library/CoreServices/SystemVersion.plist")?;
-        Ok(vers)
-    }
-}
-
 impl ConnectionOps for Connection {
     fn name(&self) -> String {
-        if let Ok(vers) = SoftwareVersion::load() {
-            format!(
-                "{} {} ({})",
-                vers.product_name, vers.product_user_visible_version, vers.product_build_version
-            )
-        } else {
-            "macOS".to_string()
-        }
+        format!("macOS {}", operating_system_version_string())
     }
 
     fn default_dpi(&self) -> f64 {

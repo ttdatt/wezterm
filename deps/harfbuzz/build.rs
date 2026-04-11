@@ -68,5 +68,5 @@ fn main() {
     harfbuzz();
     let out_dir = env::var("OUT_DIR").unwrap();
     println!("cargo:outdir={}", out_dir);
-    println!("cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET=12.0");
+    println!("cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET=15.0");
 }

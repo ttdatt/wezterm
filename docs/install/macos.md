@@ -1,6 +1,6 @@
 ## Installing on macOS
 
-WezTerm requires macOS 12 (Monterey) or newer.
+WezTerm requires macOS 15 (Sequoia) or newer.
 
 Starting with version 20210203-095643-70a364eb, WezTerm is a Universal binary
 with support for both Apple Silicon and Intel hardware.

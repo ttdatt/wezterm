@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "macos", allow(dead_code))]
+
 use anyhow::{anyhow, bail, ensure, Error};
 use std::ffi::c_void;
 use std::rc::Rc;

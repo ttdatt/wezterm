@@ -16,10 +16,12 @@ possible values:
     The default is `"WebGpu"`. In earlier versions it was `"OpenGL"`
 
 {{since('20240128-202157-1e552d76', outline=true)}}
-    The default has been reverted to `"OpenGL"`.
+    The default has been reverted to `"OpenGL"` on non-macOS platforms.
 
-You may wish (or need!) to select `Software` if there are issues with your
-GPU/OpenGL drivers.
+On macOS in this fork, the default is `"WebGpu"` and it is the only supported value.
+
+On other platforms, you may wish (or need!) to select `Software` if there are
+issues with your GPU/OpenGL drivers.
 
 WezTerm will automatically select `Software` if it detects that it is
 being started in a Remote Desktop environment on Windows.

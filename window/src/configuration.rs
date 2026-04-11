@@ -1,3 +1,4 @@
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) fn prefer_swrast() -> bool {
     #[cfg(windows)]
     {
