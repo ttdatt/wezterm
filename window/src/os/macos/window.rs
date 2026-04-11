@@ -8,10 +8,10 @@ use crate::connection::ConnectionOps;
 use crate::os::macos::menu::{MenuItem, RepresentedItem};
 use crate::parameters::{Border, Parameters, TitleBar};
 use crate::{
-    Clipboard, Connection, DeadKeyStatus, Dimensions, Handled, KeyCode, KeyEvent, Modifiers,
-    MouseButtons, MouseCursor, MouseEvent, MouseEventKind, MousePress, Point, RawKeyEvent, Rect,
-    RequestedWindowGeometry, ResizeIncrement, ResolvedGeometry, ScreenPoint, Size, ULength,
-    WindowDecorations, WindowEvent, WindowEventSender, WindowOps, WindowState,
+    Appearance, Clipboard, Connection, DeadKeyStatus, Dimensions, Handled, KeyCode, KeyEvent,
+    Modifiers, MouseButtons, MouseCursor, MouseEvent, MouseEventKind, MousePress, Point,
+    RawKeyEvent, Rect, RequestedWindowGeometry, ResizeIncrement, ResolvedGeometry, ScreenPoint,
+    Size, ULength, WindowDecorations, WindowEvent, WindowEventSender, WindowOps, WindowState,
 };
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
@@ -23,7 +23,7 @@ use cocoa::appkit::{
 };
 use cocoa::base::*;
 use cocoa::foundation::{
-    NSArray, NSInteger, NSNotFound, NSPoint, NSRect, NSSize, NSString, NSUInteger,
+    NSArray, NSInteger, NSNotFound, NSPoint, NSRect, NSSize, NSUInteger,
 };
 use config::window::WindowLevel;
 use config::{ConfigHandle, RgbaColor, SrgbaTuple};
@@ -42,7 +42,7 @@ use raw_window_handle::{
 };
 use std::any::Any;
 use std::cell::RefCell;
-use std::ffi::{c_void, CStr};
+use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::time::Instant;
@@ -127,6 +127,7 @@ impl NSRange {
 
 pub(crate) struct WindowInner {
     background_effect_view: StrongPtr,
+    titlebar_background_view: StrongPtr,
     view: StrongPtr,
     window: StrongPtr,
     config: ConfigHandle,
@@ -143,6 +144,15 @@ fn new_background_effect_view(rect: NSRect) -> StrongPtr {
     unsafe {
         let view: id = msg_send![class!(NSVisualEffectView), alloc];
         StrongPtr::new(msg_send![view, initWithFrame: rect])
+    }
+}
+
+fn new_titlebar_background_view(rect: NSRect) -> StrongPtr {
+    unsafe {
+        let view: id = msg_send![get_titlebar_background_view_class(), alloc];
+        let view = StrongPtr::new(msg_send![view, initWithFrame: rect]);
+        let _: () = msg_send![*view, setWantsLayer: YES];
+        view
     }
 }
 
@@ -165,6 +175,85 @@ fn apply_background_effect(background_effect_view: &StrongPtr, config: &ConfigHa
             **background_effect_view,
             setHidden: if blur_enabled { NO } else { YES }
         ];
+    }
+}
+
+fn backing_scale_for_view(view: id) -> CGFloat {
+    unsafe {
+        let frame = NSView::frame(view);
+        if frame.size.width == 0.0 || frame.size.height == 0.0 {
+            return 1.0;
+        }
+
+        let backing_frame = NSView::convertRectToBacking(view, frame);
+        (backing_frame.size.width / frame.size.width)
+            .max(backing_frame.size.height / frame.size.height)
+            .max(1.0)
+    }
+}
+
+fn update_backing_layer_scale(view: id) {
+    unsafe {
+        let layer: id = msg_send![view, layer];
+        if layer.is_null() {
+            return;
+        }
+
+        let () = msg_send![layer, setContentsScale: backing_scale_for_view(view)];
+    }
+}
+
+fn apply_titlebar_background(window: id, titlebar_background_view: id, config: &ConfigHandle) {
+    unsafe {
+        let enabled = config
+            .window_decorations
+            .contains(WindowDecorations::MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR);
+        if !enabled {
+            let _: () = msg_send![titlebar_background_view, setHidden: YES];
+            return;
+        }
+
+        let content_view: id = msg_send![window, contentView];
+        if content_view.is_null() {
+            let _: () = msg_send![titlebar_background_view, setHidden: YES];
+            return;
+        }
+
+        let content_bounds = NSView::bounds(content_view);
+        let content_layout_rect: NSRect = msg_send![window, contentLayoutRect];
+        let titlebar_origin_y = (content_layout_rect.origin.y + content_layout_rect.size.height)
+            .clamp(0.0, content_bounds.size.height);
+        let titlebar_height = (content_bounds.size.height - titlebar_origin_y).max(0.0);
+
+        if titlebar_height <= 0.0 {
+            let _: () = msg_send![titlebar_background_view, setHidden: YES];
+            return;
+        }
+
+        let layer: id = msg_send![titlebar_background_view, layer];
+        if layer.is_null() {
+            let _: () = msg_send![titlebar_background_view, setHidden: YES];
+            return;
+        }
+
+        let color = config
+            .resolved_palette
+            .background
+            .unwrap_or(RgbaColor::from(SrgbaTuple(0., 0., 0., 255.)));
+        let srgb_cgcolor = objc2_core_graphics::CGColor::new_srgb(
+            color.0.into(),
+            color.1.into(),
+            color.2.into(),
+            color.3.into(),
+        );
+        let frame = NSRect::new(
+            NSPoint::new(0., titlebar_origin_y),
+            NSSize::new(content_bounds.size.width, titlebar_height),
+        );
+
+        let _: () = msg_send![titlebar_background_view, setFrame: frame];
+        let _: () = msg_send![layer, setBackgroundColor: srgb_cgcolor];
+        let _: () = msg_send![titlebar_background_view, setHidden: NO];
     }
 }
 
@@ -277,6 +366,7 @@ impl Window {
                 view_id: None,
                 window_id,
                 window: None,
+                titlebar_background_view: None,
                 screen_changed: false,
                 paint_throttled: false,
                 invalidated: true,
@@ -387,6 +477,9 @@ impl Window {
             let view = WindowView::init_with_frame(&inner, rect)?;
             view.setAutoresizingMask_(NSViewHeightSizable | NSViewWidthSizable);
 
+            let titlebar_background_view = new_titlebar_background_view(rect);
+            titlebar_background_view.setAutoresizingMask_(NSViewWidthSizable);
+
             let () = msg_send![
                 *view,
                 setLayerContentsPlacement: NSViewLayerContentsPlacementTopLeft
@@ -396,6 +489,7 @@ impl Window {
             // toggled independently without affecting event handling.
             let (): () = msg_send![*content_view, addSubview: *background_effect_view];
             let (): () = msg_send![*content_view, addSubview: *view];
+            let (): () = msg_send![*content_view, addSubview: *titlebar_background_view];
             window.setContentView_(*content_view);
             window.setDelegate_(*view);
 
@@ -423,6 +517,7 @@ impl Window {
                 as usize;
 
             let weak_window = window.weak();
+            let weak_titlebar_background_view = titlebar_background_view.weak();
             let window_handle = Window {
                 id: window_id,
                 ns_window: *window,
@@ -430,11 +525,16 @@ impl Window {
             };
             let window_inner = Rc::new(RefCell::new(WindowInner {
                 background_effect_view,
+                titlebar_background_view,
                 window,
                 view,
                 config: config.clone(),
             }));
             inner.borrow_mut().window.replace(weak_window);
+            inner
+                .borrow_mut()
+                .titlebar_background_view
+                .replace(weak_titlebar_background_view);
             conn.windows
                 .borrow_mut()
                 .insert(window_id, Rc::clone(&window_inner));
@@ -773,6 +873,7 @@ impl WindowInner {
                 self.config.window_decorations,
                 self.config.integrated_title_button_style,
             );
+            self.update_titlebar_background();
         }
     }
 
@@ -890,43 +991,11 @@ impl WindowInner {
     }
 
     fn update_titlebar_background(&self) {
-        if !self
-            .config
-            .window_decorations
-            .contains(WindowDecorations::MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR)
-        {
-            return;
-        }
-
-        // Set the titlebar background to the theme color falling back to black if there is no
-        // specified color scheme
-        let color = self
-            .config
-            .resolved_palette
-            .background
-            .unwrap_or(RgbaColor::from(SrgbaTuple(0., 0., 0., 255.)));
-
-        unsafe {
-            if let Some(titlebar_view_container) = get_titlebar_view_container(&self.window) {
-                let layer: id = msg_send![*titlebar_view_container.load(), layer];
-
-                if layer.is_null() {
-                    return;
-                }
-
-                // We need to make sure to convert the config color into an sRGB CGColor or the color will be slightly off
-                let srgb_cgcolor = objc2_core_graphics::CGColor::new_srgb(
-                    color.0.into(),
-                    color.1.into(),
-                    color.2.into(),
-                    color.3.into(),
-                );
-
-                let _: () = msg_send![layer, setBackgroundColor: srgb_cgcolor];
-            } else {
-                log::trace!("failed to get titlebar view container from window");
-            }
-        }
+        apply_titlebar_background(
+            *self.window,
+            *self.titlebar_background_view,
+            &self.config,
+        );
     }
 
     fn update_window_background_effect(&mut self) {
@@ -935,17 +1004,20 @@ impl WindowInner {
 }
 
 impl WindowInner {
+    pub(crate) fn dispatch_appearance_changed(&mut self, appearance: Appearance) {
+        if let Some(window_view) = WindowView::get_this(unsafe { &**self.view }) {
+            window_view
+                .inner
+                .borrow_mut()
+                .events
+                .dispatch(WindowEvent::AppearanceChanged(appearance));
+        }
+    }
+
     fn show(&mut self) {
         unsafe {
             let current_app = NSRunningApplication::currentApplication(nil);
             current_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps);
-
-            // Stupid hack: adjust the window style mask and set it back
-            // to what it was.
-            // Without this, the CAMetalLayer used by webgpu seems to get
-            // stuck with a scale factor of 2 despite us having configured 1.
-            self.window
-                .setStyleMask_(NSWindowStyleMask::NSBorderlessWindowMask);
 
             apply_decorations_to_window(
                 &self.window,
@@ -953,6 +1025,7 @@ impl WindowInner {
                 self.config.integrated_title_button_style,
             );
 
+            update_backing_layer_scale(*self.view);
             self.update_titlebar_background();
 
             self.window.makeKeyAndOrderFront_(nil)
@@ -1123,8 +1196,8 @@ impl WindowInner {
         }
         self.update_window_shadow();
         self.update_window_background_effect();
-        self.update_titlebar_background();
         self.apply_decorations();
+        self.update_titlebar_background();
     }
 }
 
@@ -1235,74 +1308,6 @@ fn decoration_to_mask(
     }
 }
 
-unsafe fn get_view_class_name(id: id) -> Option<String> {
-    if id.is_null() {
-        return None;
-    }
-
-    let class_name: id = msg_send![id, className];
-
-    if class_name.is_null() {
-        return None;
-    }
-
-    let cstr = CStr::from_ptr(class_name.UTF8String()).to_str();
-
-    match cstr {
-        Ok(s) => Some(s.to_string()),
-        Err(_) => None,
-    }
-}
-
-fn get_titlebar_view_container(window: &StrongPtr) -> Option<WeakPtr> {
-    // The view container for the titlebar on macos is found next to the primary window view
-    // so we need to traverse up to the super view to find it
-    let super_view = get_view_superview(window)?;
-
-    let sub_views = get_view_subviews(&super_view.load())?;
-
-    let count = unsafe { sub_views.load().count() };
-
-    for i in 0..count {
-        let sub_view: id = unsafe { sub_views.load().objectAtIndex(i) };
-
-        if sub_view.is_null() {
-            continue;
-        }
-
-        let class_name = unsafe { get_view_class_name(sub_view)? };
-
-        if class_name == TITLEBAR_VIEW_NAME {
-            let titlebar_view = unsafe { WeakPtr::new(sub_view) };
-            return Some(titlebar_view);
-        }
-    }
-
-    None
-}
-
-fn get_view_superview(view: &StrongPtr) -> Option<WeakPtr> {
-    let super_view_id: id = unsafe { msg_send![view.contentView(), superview] };
-
-    if super_view_id.is_null() {
-        return None;
-    }
-
-    let super_view = unsafe { WeakPtr::new(super_view_id) };
-
-    Some(super_view)
-}
-
-fn get_view_subviews(view: &StrongPtr) -> Option<WeakPtr> {
-    let sub_views_id: id = unsafe { msg_send![**view, subviews] };
-    if sub_views_id.is_null() {
-        return None;
-    }
-
-    let sub_views = unsafe { WeakPtr::new(sub_views_id) };
-    Some(sub_views)
-}
-
 #[derive(Debug)]
 struct DeadKeyState {
     /// The private dead key state preserved from UCKeyTranslate
@@ -1313,6 +1318,7 @@ struct Inner {
     events: WindowEventSender,
     view_id: Option<WeakPtr>,
     window: Option<WeakPtr>,
+    titlebar_background_view: Option<WeakPtr>,
     screen_changed: bool,
     paint_throttled: bool,
     window_id: usize,
@@ -1586,7 +1592,7 @@ impl Inner {
 
 const VIEW_CLS_NAME: &str = "WezTermWindowView";
 const WINDOW_CLS_NAME: &str = "WezTermWindow";
-const TITLEBAR_VIEW_NAME: &str = "NSTitlebarContainerView";
+const TITLEBAR_BACKGROUND_VIEW_CLS_NAME: &str = "WezTermTitlebarBackgroundView";
 
 struct WindowView {
     inner: Rc<RefCell<Inner>>,
@@ -1675,6 +1681,34 @@ fn get_window_class() -> &'static Class {
             cls.add_method(
                 sel!(canBecomeMainWindow),
                 yes as extern "C" fn(&mut Object, Sel) -> BOOL,
+            );
+        }
+
+        cls.register()
+    })
+}
+
+extern "C" fn titlebar_background_hit_test(_this: &Object, _sel: Sel, _point: NSPoint) -> id {
+    nil
+}
+
+extern "C" fn titlebar_background_is_opaque(_this: &Object, _sel: Sel) -> BOOL {
+    NO
+}
+
+fn get_titlebar_background_view_class() -> &'static Class {
+    Class::get(TITLEBAR_BACKGROUND_VIEW_CLS_NAME).unwrap_or_else(|| {
+        let mut cls = ClassDecl::new(TITLEBAR_BACKGROUND_VIEW_CLS_NAME, class!(NSView))
+            .expect("Unable to register titlebar background view class");
+
+        unsafe {
+            cls.add_method(
+                sel!(hitTest:),
+                titlebar_background_hit_test as extern "C" fn(&Object, Sel, NSPoint) -> id,
+            );
+            cls.add_method(
+                sel!(isOpaque),
+                titlebar_background_is_opaque as extern "C" fn(&Object, Sel) -> BOOL,
             );
         }
 
@@ -2699,12 +2733,19 @@ impl WindowView {
     }
 
     extern "C" fn did_resize(this: &mut Object, _sel: Sel, _notification: id) {
+        update_backing_layer_scale(this as *mut _);
         let frame = unsafe { NSView::frame(this as *mut _) };
         let backing_frame = unsafe { NSView::convertRectToBacking(this as *mut _, frame) };
         let width = backing_frame.size.width;
         let height = backing_frame.size.height;
         if let Some(this) = Self::get_this(this) {
             let mut inner = this.inner.borrow_mut();
+            if let (Some(window), Some(titlebar_background_view)) = (
+                inner.window.as_ref().map(WeakPtr::load),
+                inner.titlebar_background_view.as_ref().map(WeakPtr::load),
+            ) {
+                apply_titlebar_background(*window, *titlebar_background_view, &inner.config);
+            }
 
             // This is a little gross; ideally we'd call
             // WindowInner:is_fullscreen to determine this, but
@@ -2804,12 +2845,12 @@ impl WindowView {
         _: &Object,
         _: Sel,
         layer: *mut Object,
-        _: CGFloat,
+        scale: CGFloat,
         _: *mut Object,
     ) -> BOOL {
         log::trace!("layer_should_inherit_contents_scale_from_window");
         unsafe {
-            let () = msg_send![layer, setContentsScale: 1.0];
+            let () = msg_send![layer, setContentsScale: scale.max(1.0)];
         }
         YES
     }
@@ -2821,8 +2862,9 @@ impl WindowView {
             // Use type method to get a instance of CAMetalLayer.
             // So that we don't have to worry about retaining/releasing it.
             let layer: id = msg_send![class, layer];
+            let contents_scale = backing_scale_for_view(view);
             let () = msg_send![layer, setDelegate: view];
-            let () = msg_send![layer, setContentsScale: 1.0];
+            let () = msg_send![layer, setContentsScale: contents_scale];
             let () = msg_send![layer, setOpaque: NO];
             layer
         }

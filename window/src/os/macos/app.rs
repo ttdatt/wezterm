@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 
 const CLS_NAME: &str = "WezTermAppDelegate";
 const UNIX_EXECUTABLE_UTI: &str = "public.unix-executable";
+const NSWORKSPACE_ACCESSIBILITY_DISPLAY_OPTIONS_DID_CHANGE_NOTIFICATION: &str =
+    "NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification";
 
 #[link(name = "UniformTypeIdentifiers", kind = "framework")]
 extern "C" {}
@@ -213,7 +215,43 @@ extern "C" fn application_did_finish_launching(this: &mut Object, _sel: Sel, _no
     log::debug!("application_did_finish_launching");
     unsafe {
         (*this).set_ivar("launched", YES);
+
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let notification_center: id = msg_send![workspace, notificationCenter];
+        let () = msg_send![
+            notification_center,
+            addObserver: this
+            selector: sel!(workspaceAccessibilityDisplayOptionsDidChange:)
+            name: *nsstring(NSWORKSPACE_ACCESSIBILITY_DISPLAY_OPTIONS_DID_CHANGE_NOTIFICATION)
+            object: nil
+        ];
     }
+}
+
+fn dispatch_appearance_changed_for_all_windows() {
+    let Some(conn) = Connection::get() else {
+        return;
+    };
+
+    let appearance = conn.get_appearance();
+    let windows = conn
+        .windows
+        .borrow()
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+
+    for window in windows {
+        window.borrow_mut().dispatch_appearance_changed(appearance);
+    }
+}
+
+extern "C" fn workspace_accessibility_display_options_did_change(
+    _this: &mut Object,
+    _sel: Sel,
+    _notif: *mut Object,
+) {
+    dispatch_appearance_changed_for_all_windows();
 }
 
 extern "C" fn application_did_become_active(
@@ -439,6 +477,11 @@ fn get_class() -> &'static Class {
             cls.add_method(
                 sel!(applicationDidBecomeActive:),
                 application_did_become_active as extern "C" fn(&mut Object, Sel, *mut Object),
+            );
+            cls.add_method(
+                sel!(workspaceAccessibilityDisplayOptionsDidChange:),
+                workspace_accessibility_display_options_did_change
+                    as extern "C" fn(&mut Object, Sel, *mut Object),
             );
             cls.add_method(
                 sel!(application:openFile:),

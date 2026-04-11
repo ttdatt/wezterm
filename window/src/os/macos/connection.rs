@@ -9,7 +9,9 @@ use crate::os::macos::app::create_app_delegate;
 use crate::screen::{ScreenInfo, Screens};
 use crate::spawn::*;
 use crate::Appearance;
-use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSScreen};
+use cocoa::appkit::{
+    NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSScreen,
+};
 use cocoa::base::{id, nil};
 use cocoa::foundation::{NSArray, NSInteger};
 use objc::runtime::Object;
@@ -39,6 +41,43 @@ fn operating_system_version_string() -> String {
         let process_info: id = msg_send![class!(NSProcessInfo), processInfo];
         let version: id = msg_send![process_info, operatingSystemVersionString];
         super::nsstring_to_str(version).to_string()
+    }
+}
+
+const NS_APPEARANCE_NAME_AQUA: &str = "NSAppearanceNameAqua";
+const NS_APPEARANCE_NAME_DARK_AQUA: &str = "NSAppearanceNameDarkAqua";
+
+fn current_appearance(ns_app: id) -> Appearance {
+    unsafe {
+        let appearance: id = msg_send![ns_app, effectiveAppearance];
+        let aqua = super::nsstring(NS_APPEARANCE_NAME_AQUA);
+        let dark_aqua = super::nsstring(NS_APPEARANCE_NAME_DARK_AQUA);
+        let matches = NSArray::arrayWithObjects(nil, &[*dark_aqua, *aqua]);
+        let best_match: id = msg_send![appearance, bestMatchFromAppearancesWithNames: matches];
+        let best_match = if best_match.is_null() {
+            None
+        } else {
+            Some(nsstring_to_str(best_match))
+        };
+
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let high_contrast: BOOL = msg_send![workspace, accessibilityDisplayShouldIncreaseContrast];
+
+        log::debug!(
+            "effectiveAppearance best match={best_match:?} high_contrast={}",
+            high_contrast == YES
+        );
+
+        match (best_match, high_contrast == YES) {
+            (Some(NS_APPEARANCE_NAME_DARK_AQUA), true) => Appearance::DarkHighContrast,
+            (Some(NS_APPEARANCE_NAME_DARK_AQUA), false) => Appearance::Dark,
+            (Some(NS_APPEARANCE_NAME_AQUA), true) => Appearance::LightHighContrast,
+            (Some(NS_APPEARANCE_NAME_AQUA), false) => Appearance::Light,
+            _ => {
+                log::warn!("Unknown effectiveAppearance, assume Light");
+                Appearance::Light
+            }
+        }
     }
 }
 
@@ -143,23 +182,7 @@ impl ConnectionOps for Connection {
     }
 
     fn get_appearance(&self) -> Appearance {
-        let name = unsafe {
-            let appearance: id = msg_send![self.ns_app, effectiveAppearance];
-            nsstring_to_str(msg_send![appearance, name])
-        };
-        log::debug!("NSAppearanceName is {name}");
-        match name {
-            "NSAppearanceNameVibrantDark" | "NSAppearanceNameDarkAqua" => Appearance::Dark,
-            "NSAppearanceNameVibrantLight" | "NSAppearanceNameAqua" => Appearance::Light,
-            "NSAppearanceNameAccessibilityHighContrastVibrantLight"
-            | "NSAppearanceNameAccessibilityHighContrastAqua" => Appearance::LightHighContrast,
-            "NSAppearanceNameAccessibilityHighContrastVibrantDark"
-            | "NSAppearanceNameAccessibilityHighContrastDarkAqua" => Appearance::DarkHighContrast,
-            _ => {
-                log::warn!("Unknown NSAppearanceName {name}, assume Light");
-                Appearance::Light
-            }
-        }
+        current_appearance(self.ns_app)
     }
 
     fn run_message_loop(&self) -> anyhow::Result<()> {
