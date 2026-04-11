@@ -1,9 +1,10 @@
 #![allow(unexpected_cfgs)] // <https://github.com/SSheldon/rust-objc/issues/125>
 use cocoa::base::{id, nil};
-use cocoa::foundation::NSString;
+use cocoa::foundation::{NSArray, NSString};
 use objc::rc::StrongPtr;
-use objc::runtime::Object;
+use objc::runtime::{Class, Object, BOOL, NO, YES};
 use objc::*;
+use std::path::PathBuf;
 
 mod app;
 pub mod bitmap;
@@ -17,11 +18,11 @@ mod keycodes;
 pub use self::window::*;
 pub use bitmap::*;
 pub use connection::*;
-use objc::runtime::{BOOL, NO, YES};
-
 pub fn supports_default_terminal_menu_item() -> bool {
     app::supports_default_terminal_menu_item()
 }
+
+pub(crate) const NSPASTEBOARD_TYPE_FILE_URL: &str = "public.file-url";
 
 /// Convert a rust string to a cocoa string
 fn nsstring(s: &str) -> StrongPtr {
@@ -51,4 +52,36 @@ fn to_yes_no(value: bool) -> BOOL {
 /// Helper function to easily convert an objc' BOOL to a Rust' bool
 fn from_yes_no(value: BOOL) -> bool {
     value == YES
+}
+
+fn file_paths_from_pasteboard(pasteboard: id) -> Vec<PathBuf> {
+    if pasteboard.is_null() {
+        return vec![];
+    }
+
+    unsafe {
+        let nsurl_class: id = class!(NSURL) as *const Class as id;
+        let url_classes = NSArray::arrayWithObject(nil, nsurl_class);
+        let urls: id = msg_send![pasteboard, readObjectsForClasses: url_classes options: nil];
+
+        if urls.is_null() {
+            return vec![];
+        }
+
+        let mut paths = Vec::new();
+        for idx in 0..urls.count() {
+            let url: id = urls.objectAtIndex(idx);
+            let is_file_url: BOOL = msg_send![url, isFileURL];
+            if is_file_url != YES {
+                continue;
+            }
+
+            let path: id = msg_send![url, path];
+            if !path.is_null() {
+                paths.push(PathBuf::from(nsstring_to_str(path)));
+            }
+        }
+
+        paths
+    }
 }

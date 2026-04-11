@@ -1,11 +1,11 @@
 use crate::connection::{dispatch_application_event, ConnectionOps};
 use crate::macos::menu::RepresentedItem;
-use crate::macos::{nsstring, nsstring_to_str};
+use crate::macos::{file_paths_from_pasteboard, nsstring, nsstring_to_str};
 use crate::menu::{Menu, MenuItem};
 use crate::{ApplicationEvent, ApplicationSpawnTarget, Connection};
-use cocoa::appkit::{NSApp, NSApplicationTerminateReply, NSFilenamesPboardType, NSPasteboard, NSStringPboardType};
+use cocoa::appkit::{NSApp, NSApplicationTerminateReply, NSStringPboardType};
 use cocoa::base::{id, nil};
-use cocoa::foundation::{NSArray, NSInteger, NSURL};
+use cocoa::foundation::NSInteger;
 use config::keyassignment::KeyAssignment;
 use config::WindowCloseConfirmation;
 use objc::declare::ClassDecl;
@@ -83,38 +83,15 @@ fn normalize_service_path(path: &Path) -> PathBuf {
 fn service_paths_from_pasteboard(pasteboard: id) -> Vec<PathBuf> {
     let mut dirs = BTreeSet::new();
 
+    for path in file_paths_from_pasteboard(pasteboard) {
+        dirs.insert(normalize_service_path(&path));
+    }
+    if !dirs.is_empty() {
+        return dirs.into_iter().collect();
+    }
+
     unsafe {
-        let nsurl_class: id = class!(NSURL) as *const Class as id;
-        let url_classes = NSArray::arrayWithObject(nil, nsurl_class);
-        let urls = pasteboard.readObjectsForClasses_options(url_classes, nil);
-        if !urls.is_null() {
-            for idx in 0..urls.count() {
-                let url = urls.objectAtIndex(idx);
-                let url = if url.hasDirectoryPath() == YES {
-                    url
-                } else {
-                    url.URLByDeletingLastPathComponent()
-                };
-                let path = url.path();
-                if !path.is_null() {
-                    dirs.insert(PathBuf::from(nsstring_to_str(path)));
-                }
-            }
-            if !dirs.is_empty() {
-                return dirs.into_iter().collect();
-            }
-        }
-
-        let filenames = NSPasteboard::propertyListForType(pasteboard, NSFilenamesPboardType);
-        if !filenames.is_null() {
-            for idx in 0..filenames.count() {
-                let path = PathBuf::from(nsstring_to_str(filenames.objectAtIndex(idx)));
-                dirs.insert(normalize_service_path(&path));
-            }
-            return dirs.into_iter().collect();
-        }
-
-        let string = pasteboard.stringForType(NSStringPboardType);
+        let string: id = msg_send![pasteboard, stringForType: NSStringPboardType];
         if !string.is_null() {
             for line in nsstring_to_str(string).lines() {
                 let line = line.trim();

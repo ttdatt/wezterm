@@ -1,5 +1,5 @@
-use crate::macos::{nsstring, nsstring_to_str};
-use cocoa::appkit::{NSFilenamesPboardType, NSPasteboard, NSStringPboardType};
+use crate::macos::{file_paths_from_pasteboard, nsstring, nsstring_to_str};
+use cocoa::appkit::{NSPasteboard, NSStringPboardType};
 use cocoa::base::*;
 use cocoa::foundation::NSArray;
 
@@ -17,18 +17,21 @@ impl Clipboard {
     }
 
     pub fn read(&self) -> anyhow::Result<String> {
+        let paths = file_paths_from_pasteboard(self.pasteboard);
+        if !paths.is_empty() {
+            let filenames = paths
+                .iter()
+                .map(|path| {
+                    let path = path.to_string_lossy().into_owned();
+                    shlex::try_quote(&path)
+                        .map(|quoted| quoted.into_owned())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>();
+            return Ok(filenames.join(" "));
+        }
+
         unsafe {
-            let plist = self.pasteboard.propertyListForType(NSFilenamesPboardType);
-            if !plist.is_null() {
-                let mut filenames = vec![];
-                for i in 0..plist.count() {
-                    filenames.push(
-                        shlex::try_quote(nsstring_to_str(plist.objectAtIndex(i)))
-                            .unwrap_or_else(|_| "".into()),
-                    );
-                }
-                return Ok(filenames.join(" "));
-            }
             let s = self.pasteboard.stringForType(NSStringPboardType);
             if !s.is_null() {
                 let str = nsstring_to_str(s);

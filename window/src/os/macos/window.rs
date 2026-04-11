@@ -18,13 +18,12 @@ use async_trait::async_trait;
 use cocoa::appkit::{
     self, CGFloat, NSApplication, NSApplicationActivateIgnoringOtherApps,
     NSApplicationPresentationOptions, NSBackingStoreBuffered, NSEvent, NSEventModifierFlags,
-    NSPasteboard, NSRunningApplication, NSScreen, NSView,
-    NSViewHeightSizable, NSViewWidthSizable, NSWindow, NSWindowStyleMask,
+    NSRunningApplication, NSScreen, NSView, NSViewHeightSizable, NSViewWidthSizable, NSWindow,
+    NSWindowStyleMask,
 };
 use cocoa::base::*;
 use cocoa::foundation::{
-    NSArray, NSFastEnumeration, NSInteger, NSNotFound, NSPoint, NSRect, NSSize,
-    NSString, NSUInteger,
+    NSArray, NSInteger, NSNotFound, NSPoint, NSRect, NSSize, NSString, NSUInteger,
 };
 use config::window::WindowLevel;
 use config::{ConfigHandle, RgbaColor, SrgbaTuple};
@@ -44,7 +43,6 @@ use raw_window_handle::{
 use std::any::Any;
 use std::cell::RefCell;
 use std::ffi::{c_void, CStr};
-use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::time::Instant;
@@ -55,16 +53,12 @@ use wezterm_input_types::{is_ascii_control, IntegratedTitleButtonStyle, Keyboard
 const NSViewLayerContentsPlacementTopLeft: NSInteger = 11;
 #[allow(non_upper_case_globals)]
 const NSViewLayerContentsRedrawDuringViewResize: NSInteger = 2;
-
-#[link(name = "CoreGraphics", kind = "framework")]
-extern "C" {
-    fn CGSMainConnectionID() -> id;
-    fn CGSSetWindowBackgroundBlurRadius(
-        connection_id: id,
-        window_id: NSInteger,
-        radius: i64,
-    ) -> i32;
-}
+#[allow(non_upper_case_globals)]
+const NSVisualEffectMaterialUnderWindowBackground: NSInteger = 21;
+#[allow(non_upper_case_globals)]
+const NSVisualEffectBlendingModeBehindWindow: NSInteger = 0;
+#[allow(non_upper_case_globals)]
+const NSVisualEffectStateFollowsWindowActiveState: NSInteger = 0;
 
 fn round_away_from_zerof(value: f64) -> f64 {
     if value > 0. {
@@ -132,9 +126,46 @@ impl NSRange {
 }
 
 pub(crate) struct WindowInner {
+    background_effect_view: StrongPtr,
     view: StrongPtr,
     window: StrongPtr,
     config: ConfigHandle,
+}
+
+fn new_content_view(rect: NSRect) -> StrongPtr {
+    unsafe {
+        let view: id = msg_send![class!(NSView), alloc];
+        StrongPtr::new(msg_send![view, initWithFrame: rect])
+    }
+}
+
+fn new_background_effect_view(rect: NSRect) -> StrongPtr {
+    unsafe {
+        let view: id = msg_send![class!(NSVisualEffectView), alloc];
+        StrongPtr::new(msg_send![view, initWithFrame: rect])
+    }
+}
+
+fn apply_background_effect(background_effect_view: &StrongPtr, config: &ConfigHandle) {
+    unsafe {
+        let blur_enabled = config.macos_window_background_blur > 0;
+        let _: () = msg_send![
+            **background_effect_view,
+            setMaterial: NSVisualEffectMaterialUnderWindowBackground
+        ];
+        let _: () = msg_send![
+            **background_effect_view,
+            setBlendingMode: NSVisualEffectBlendingModeBehindWindow
+        ];
+        let _: () = msg_send![
+            **background_effect_view,
+            setState: NSVisualEffectStateFollowsWindowActiveState
+        ];
+        let _: () = msg_send![
+            **background_effect_view,
+            setHidden: if blur_enabled { NO } else { YES }
+        ];
+    }
 }
 
 fn function_key_to_keycode(function_key: char) -> KeyCode {
@@ -346,6 +377,13 @@ impl Window {
             window.setTitle_(*nsstring(&name));
             window.setAcceptsMouseMovedEvents_(YES);
 
+            let content_view = new_content_view(rect);
+            content_view.setAutoresizingMask_(NSViewHeightSizable | NSViewWidthSizable);
+
+            let background_effect_view = new_background_effect_view(rect);
+            background_effect_view.setAutoresizingMask_(NSViewHeightSizable | NSViewWidthSizable);
+            apply_background_effect(&background_effect_view, &config);
+
             let view = WindowView::init_with_frame(&inner, rect)?;
             view.setAutoresizingMask_(NSViewHeightSizable | NSViewWidthSizable);
 
@@ -354,12 +392,11 @@ impl Window {
                 setLayerContentsPlacement: NSViewLayerContentsPlacementTopLeft
             ];
 
-            CGSSetWindowBackgroundBlurRadius(
-                CGSMainConnectionID(),
-                window.windowNumber(),
-                config.macos_window_background_blur,
-            );
-            window.setContentView_(*view);
+            // Keep the effect view behind the terminal view so the blur can be
+            // toggled independently without affecting event handling.
+            let (): () = msg_send![*content_view, addSubview: *background_effect_view];
+            let (): () = msg_send![*content_view, addSubview: *view];
+            window.setContentView_(*content_view);
             window.setDelegate_(*view);
 
             view.setWantsLayer(YES);
@@ -369,10 +406,11 @@ impl Window {
             ];
 
             // register for drag and drop operations.
+            let file_url_type = super::nsstring(super::NSPASTEBOARD_TYPE_FILE_URL);
             let () = msg_send![
                 *window,
                 registerForDraggedTypes:
-                    NSArray::arrayWithObject(nil, appkit::NSFilenamesPboardType)
+                    NSArray::arrayWithObject(nil, *file_url_type)
             ];
 
             let frame = NSView::frame(*view);
@@ -391,6 +429,7 @@ impl Window {
                 ns_view: *view,
             };
             let window_inner = Rc::new(RefCell::new(WindowInner {
+                background_effect_view,
                 window,
                 view,
                 config: config.clone(),
@@ -890,14 +929,8 @@ impl WindowInner {
         }
     }
 
-    fn update_window_background_blur(&mut self) {
-        unsafe {
-            CGSSetWindowBackgroundBlurRadius(
-                CGSMainConnectionID(),
-                self.window.windowNumber(),
-                self.config.macos_window_background_blur,
-            );
-        }
+    fn update_window_background_effect(&mut self) {
+        apply_background_effect(&self.background_effect_view, &self.config);
     }
 }
 
@@ -1089,7 +1122,7 @@ impl WindowInner {
             }
         }
         self.update_window_shadow();
-        self.update_window_background_blur();
+        self.update_window_background_effect();
         self.update_titlebar_background();
         self.apply_decorations();
     }
@@ -2846,22 +2879,11 @@ impl WindowView {
             let mut inner = this.inner.borrow_mut();
 
             let pb: id = unsafe { msg_send![sender, draggingPasteboard] };
-            if pb.is_null() {
+            let paths = super::file_paths_from_pasteboard(pb);
+            if paths.is_empty() {
                 return NO;
             }
 
-            let filenames =
-                unsafe { NSPasteboard::propertyListForType(pb, appkit::NSFilenamesPboardType) };
-            if filenames.is_null() {
-                return NO;
-            }
-
-            let paths = unsafe { filenames.iter() }
-                .map(|file| unsafe {
-                    let path = nsstring_to_str(file);
-                    PathBuf::from(path)
-                })
-                .collect::<Vec<_>>();
             inner.events.dispatch(WindowEvent::DraggedFile(paths));
         }
         YES
@@ -2872,22 +2894,11 @@ impl WindowView {
             let mut inner = this.inner.borrow_mut();
 
             let pb: id = unsafe { msg_send![sender, draggingPasteboard] };
-            if pb.is_null() {
+            let paths = super::file_paths_from_pasteboard(pb);
+            if paths.is_empty() {
                 return NO;
             }
 
-            let filenames =
-                unsafe { NSPasteboard::propertyListForType(pb, appkit::NSFilenamesPboardType) };
-            if filenames.is_null() {
-                return NO;
-            }
-
-            let paths = unsafe { filenames.iter() }
-                .map(|file| unsafe {
-                    let path = nsstring_to_str(file);
-                    PathBuf::from(path)
-                })
-                .collect::<Vec<_>>();
             inner.events.dispatch(WindowEvent::DroppedFile(paths));
         }
         YES
