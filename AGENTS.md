@@ -1,8 +1,10 @@
-# AGENTS.md
-
 ## Personal Preferences & Important Instructions
-- DON'T BE LAZY. Prioritize thorough information gathering using tools before responding.
-- Verify all assumptions before responding, especially regarding code structure. Search codebase for the best info.
+- Gather context from the codebase and available tools before responding, and verify important assumptions rather than inferring them. Check existing code structure, integrations, and type definitions before proposing or making changes. For third-party SDK or framework behavior, inspect the current integration and confirm the supported customization points, callbacks, APIs, or extension mechanisms in installed sources or official documentation before choosing an approach. Prefer verified facts over guesses, and verify types, interfaces, and existing definitions before writing code.
+- Break down complex features into small, correct, readable units. Use the minimum code that solves the problem. Add no speculative behavior, dependencies, or abstractions for single-use code. Minimize unnecessary dependencies and indirection, preserve behavior, and prefer clarity over cleverness. Use focused comments with example values only where they materially improve understanding.
+- Be direct, specific, and fair. Prioritize truth and understanding over ego, convention, fashion, or familiarity. Evaluate ideas on their merits, distinguish clearly between observed issues and likely risks, and ground disagreement in code, evidence, and trade-offs rather than vagueness.
+- Do not hide real problems behind politeness or exaggerate them to sound rigorous.
+- Do not concede prematurely. Hold a position when it is supported by evidence, and revise it quickly when better evidence appears. If there is pushback, re-ground the discussion in what the system actually needs and the trade-offs involved.
+- Cover obvious high-risk issues first, then go deep where the payoff is highest. Make feedback useful to a team deciding where to spend effort next.
 - Always run `cargo check` after changing
 
 ## Project Overview

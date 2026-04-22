@@ -287,14 +287,12 @@ mod tests {
     use super::*;
     use crate::tab::Tab;
     use crate::Mux;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use wezterm_term::TerminalSize;
-
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn insert_after_active_places_new_tab_next_to_active() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = crate::MUX_TEST_LOCK.lock();
         let mux = Arc::new(Mux::new(None));
         Mux::set_mux(&mux);
 
@@ -326,7 +324,7 @@ mod tests {
 
     #[test]
     fn append_position_keeps_existing_behavior() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = crate::MUX_TEST_LOCK.lock();
         let mux = Arc::new(Mux::new(None));
         Mux::set_mux(&mux);
 

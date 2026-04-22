@@ -375,6 +375,9 @@ lazy_static::lazy_static! {
     static ref MUX: Mutex<Option<Arc<Mux>>> = Mutex::new(None);
 }
 
+#[cfg(test)]
+pub(crate) static MUX_TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 pub struct MuxWindowBuilder {
     window_id: WindowId,
     activity: Option<Activity>,
@@ -1425,17 +1428,23 @@ impl Mux {
 
         // FIXME: clipboard?
 
-        if requested_window_id.is_some() {
-            self.add_tab_to_window_and_activate_with_position(&tab, window_id, tab_insert_position)?;
-        } else {
-            self.add_tab_to_window(&tab, window_id)?;
-            let mut window = self
-                .get_window_mut(window_id)
-                .ok_or_else(|| anyhow!("no such window!?"))?;
-            if let Some(idx) = window.idx_by_id(tab.tab_id()) {
-                window.save_and_then_set_active(idx);
+        let mut window = self
+            .get_window_mut(window_id)
+            .ok_or_else(|| anyhow!("no such window!?"))?;
+        let mut tab_idx = window
+            .idx_by_id(tab.tab_id())
+            .ok_or_else(|| anyhow!("newly spawned tab {} was not added to window {}", tab.tab_id(), window_id))?;
+
+        if requested_window_id.is_some() && tab_insert_position == TabInsertPosition::AfterActive {
+            let target_idx = usize::min(window.get_active_idx().saturating_add(1), window.len() - 1);
+            if tab_idx != target_idx {
+                let tab_inst = window.remove_by_idx(tab_idx);
+                window.insert(target_idx, &tab_inst);
+                tab_idx = target_idx;
             }
         }
+
+        window.save_and_then_set_active(tab_idx);
 
         Ok((tab, pane, window_id))
     }
@@ -1504,5 +1513,274 @@ impl wezterm_term::DownloadHandler for MuxDownloader {
                 data: Arc::new(data),
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use parking_lot::{MappedMutexGuard, Mutex};
+    use promise::spawn::block_on;
+    use rangeset::RangeSet;
+    use std::ops::Range;
+    use termwiz::surface::SequenceNo;
+    use url::Url;
+    use wezterm_term::color::ColorPalette;
+    use wezterm_term::{KeyCode, KeyModifiers, Line, MouseEvent, StableRowIndex};
+
+    struct TestPane {
+        id: PaneId,
+        domain_id: DomainId,
+        size: Mutex<TerminalSize>,
+    }
+
+    impl TestPane {
+        fn new(domain_id: DomainId, size: TerminalSize) -> Arc<dyn Pane> {
+            Arc::new(Self {
+                id: crate::pane::alloc_pane_id(),
+                domain_id,
+                size: Mutex::new(size),
+            })
+        }
+    }
+
+    impl Pane for TestPane {
+        fn pane_id(&self) -> PaneId {
+            self.id
+        }
+
+        fn get_cursor_position(&self) -> crate::renderable::StableCursorPosition {
+            unimplemented!()
+        }
+
+        fn get_current_seqno(&self) -> SequenceNo {
+            unimplemented!()
+        }
+
+        fn get_changed_since(&self, _: Range<StableRowIndex>, _: SequenceNo) -> RangeSet<StableRowIndex> {
+            unimplemented!()
+        }
+
+        fn get_lines(&self, _: Range<StableRowIndex>) -> (StableRowIndex, Vec<Line>) {
+            unimplemented!()
+        }
+
+        fn with_lines_mut(&self, _: Range<StableRowIndex>, _: &mut dyn crate::pane::WithPaneLines) {
+            unimplemented!()
+        }
+
+        fn for_each_logical_line_in_stable_range_mut(
+            &self,
+            _: Range<StableRowIndex>,
+            _: &mut dyn crate::pane::ForEachPaneLogicalLine,
+        ) {
+            unimplemented!()
+        }
+
+        fn get_logical_lines(&self, _: Range<StableRowIndex>) -> Vec<crate::pane::LogicalLine> {
+            unimplemented!()
+        }
+
+        fn get_dimensions(&self) -> crate::renderable::RenderableDimensions {
+            unimplemented!()
+        }
+
+        fn get_title(&self) -> String {
+            unimplemented!()
+        }
+
+        fn send_paste(&self, _: &str) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        fn reader(&self) -> anyhow::Result<Option<Box<dyn std::io::Read + Send>>> {
+            Ok(None)
+        }
+
+        fn writer(&self) -> MappedMutexGuard<'_, dyn std::io::Write> {
+            unimplemented!()
+        }
+
+        fn resize(&self, size: TerminalSize) -> anyhow::Result<()> {
+            *self.size.lock() = size;
+            Ok(())
+        }
+
+        fn key_down(&self, _: KeyCode, _: KeyModifiers) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        fn key_up(&self, _: KeyCode, _: KeyModifiers) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        fn mouse_event(&self, _: MouseEvent) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        fn is_dead(&self) -> bool {
+            false
+        }
+
+        fn palette(&self) -> ColorPalette {
+            unimplemented!()
+        }
+
+        fn domain_id(&self) -> DomainId {
+            self.domain_id
+        }
+
+        fn is_mouse_grabbed(&self) -> bool {
+            false
+        }
+
+        fn is_alt_screen_active(&self) -> bool {
+            false
+        }
+
+        fn get_current_working_dir(&self, _: CachePolicy) -> Option<Url> {
+            None
+        }
+    }
+
+    struct TestDomain {
+        id: DomainId,
+        name: String,
+    }
+
+    impl TestDomain {
+        fn new(name: &str) -> Self {
+            Self {
+                id: crate::domain::alloc_domain_id(),
+                name: name.to_string(),
+            }
+        }
+    }
+
+    #[async_trait(?Send)]
+    impl Domain for TestDomain {
+        async fn spawn_pane(
+            &self,
+            size: TerminalSize,
+            _: Option<CommandBuilder>,
+            _: Option<String>,
+        ) -> anyhow::Result<Arc<dyn Pane>> {
+            Ok(TestPane::new(self.id, size))
+        }
+
+        fn detachable(&self) -> bool {
+            false
+        }
+
+        fn domain_id(&self) -> DomainId {
+            self.id
+        }
+
+        fn domain_name(&self) -> &str {
+            &self.name
+        }
+
+        async fn attach(&self, _: Option<WindowId>) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn detach(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn state(&self) -> crate::domain::DomainState {
+            crate::domain::DomainState::Attached
+        }
+    }
+
+    fn add_test_tab(mux: &Arc<Mux>, window_id: WindowId, domain_id: DomainId, size: TerminalSize) -> Arc<Tab> {
+        let pane = TestPane::new(domain_id, size);
+        let tab = Arc::new(Tab::new(&size));
+        tab.assign_pane(&pane);
+        mux.add_tab_and_active_pane(&tab).unwrap();
+        mux.add_tab_to_window(&tab, window_id).unwrap();
+        tab
+    }
+
+    fn configure_scheduler() {
+        promise::spawn::set_schedulers(
+            Box::new(|task| {
+                task.run();
+            }),
+            Box::new(|task| {
+                task.run();
+            }),
+        );
+    }
+
+    #[test]
+    fn spawn_tab_or_window_does_not_reinsert_tabs_for_new_windows() {
+        let _lock = crate::MUX_TEST_LOCK.lock();
+        configure_scheduler();
+        let domain: Arc<dyn Domain> = Arc::new(TestDomain::new("test"));
+        let mux = Arc::new(Mux::new(Some(Arc::clone(&domain))));
+        Mux::set_mux(&mux);
+
+        let size = TerminalSize::default();
+        let (tab, _pane, window_id) = block_on(mux.spawn_tab_or_window(
+            None,
+            SpawnTabDomain::DefaultDomain,
+            None,
+            None,
+            size,
+            None,
+            "default".to_string(),
+            None,
+            TabInsertPosition::Append,
+        ))
+        .unwrap();
+
+        let window = mux.get_window(window_id).unwrap();
+        assert_eq!(window.len(), 1);
+        assert_eq!(window.idx_by_id(tab.tab_id()), Some(0));
+        assert_eq!(window.get_active_idx(), 0);
+    }
+
+    #[test]
+    fn spawn_tab_or_window_moves_spawned_tabs_after_the_active_tab() {
+        let _lock = crate::MUX_TEST_LOCK.lock();
+        configure_scheduler();
+        let domain: Arc<dyn Domain> = Arc::new(TestDomain::new("test"));
+        let mux = Arc::new(Mux::new(Some(Arc::clone(&domain))));
+        Mux::set_mux(&mux);
+
+        let size = TerminalSize::default();
+        let window_builder = mux.new_empty_window(Some("default".to_string()), None);
+        let window_id = *window_builder;
+        let first = add_test_tab(&mux, window_id, domain.domain_id(), size);
+        let second = add_test_tab(&mux, window_id, domain.domain_id(), size);
+        let first_pane_id = first.get_active_pane().unwrap().pane_id();
+
+        {
+            let mut window = mux.get_window_mut(window_id).unwrap();
+            window.set_active_without_saving(0);
+        }
+
+        let (inserted, _pane, _) = block_on(mux.spawn_tab_or_window(
+            Some(window_id),
+            SpawnTabDomain::CurrentPaneDomain,
+            None,
+            None,
+            size,
+            Some(first_pane_id),
+            "default".to_string(),
+            None,
+            TabInsertPosition::AfterActive,
+        ))
+        .unwrap();
+
+        let window = mux.get_window(window_id).unwrap();
+        assert_eq!(window.idx_by_id(first.tab_id()), Some(0));
+        assert_eq!(window.idx_by_id(inserted.tab_id()), Some(1));
+        assert_eq!(window.idx_by_id(second.tab_id()), Some(2));
+        assert_eq!(window.get_active_idx(), 1);
+
+        drop(window_builder);
     }
 }
