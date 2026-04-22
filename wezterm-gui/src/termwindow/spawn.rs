@@ -25,12 +25,16 @@ impl super::TermWindow {
     }
 
     pub fn spawn_tab(&mut self, domain: &SpawnTabDomain) {
+        let spawn_where = match domain {
+            SpawnTabDomain::CurrentPaneDomain => SpawnWhere::NewTabAfterCurrent,
+            _ => SpawnWhere::NewTab,
+        };
         self.spawn_command(
             &SpawnCommand {
                 domain: domain.clone(),
                 ..Default::default()
             },
-            SpawnWhere::NewTab,
+            spawn_where,
         );
     }
 }

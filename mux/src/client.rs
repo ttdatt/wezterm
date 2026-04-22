@@ -1,6 +1,6 @@
 use crate::PaneId;
 use chrono::serde::ts_seconds;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -56,20 +56,30 @@ pub struct ClientInfo {
 
 impl ClientInfo {
     pub fn new(client_id: Arc<ClientId>) -> Self {
+        let now = current_time();
         Self {
             client_id,
-            connected_at: Utc::now(),
+            connected_at: now,
             active_workspace: None,
-            last_input: Utc::now(),
+            last_input: now,
             focused_pane_id: None,
         }
     }
 
     pub fn update_last_input(&mut self) {
-        self.last_input = Utc::now();
+        self.last_input = current_time();
     }
 
     pub fn update_focused_pane(&mut self, pane_id: PaneId) {
         self.focused_pane_id.replace(pane_id);
     }
+}
+
+fn current_time() -> DateTime<Utc> {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("system time predates unix epoch");
+    Utc.timestamp_opt(now.as_secs() as i64, now.subsec_nanos())
+        .single()
+        .expect("current time should produce a valid UTC timestamp")
 }

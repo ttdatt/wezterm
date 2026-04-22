@@ -7,6 +7,7 @@ use anyhow::{Context, Error};
 use config::keyassignment::{KeyAssignment, SpawnCommand, SpawnTabDomain};
 use config::{ConfigSubscription, NotificationHandling};
 use mux::client::ClientId;
+use mux::window::TabInsertPosition;
 use mux::window::WindowId as MuxWindowId;
 use mux::{Mux, MuxNotification};
 use promise::{Future, Promise};
@@ -256,6 +257,7 @@ impl GuiFrontEnd {
                             pane_id,
                             workspace,
                             None, // optional position
+                            TabInsertPosition::Append,
                         )
                         .await
                     {

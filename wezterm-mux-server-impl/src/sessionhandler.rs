@@ -7,6 +7,7 @@ use mux::domain::SplitSource;
 use mux::pane::{CachePolicy, Pane, PaneId};
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use mux::tab::TabId;
+use mux::window::TabInsertPosition;
 use mux::{Mux, MuxNotification};
 use promise::spawn::spawn_into_main_thread;
 use std::collections::HashMap;
@@ -1083,6 +1084,7 @@ async fn domain_spawn_v2(spawn: SpawnV2, client_id: Option<Arc<ClientId>>) -> an
             None, // optional current pane_id
             spawn.workspace,
             None, // optional gui window position
+            TabInsertPosition::Append,
         )
         .await?;
 

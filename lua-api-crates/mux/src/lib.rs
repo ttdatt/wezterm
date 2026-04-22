@@ -6,7 +6,7 @@ use mlua::UserDataRef;
 use mux::domain::{DomainId, SplitSource};
 use mux::pane::{Pane, PaneId};
 use mux::tab::{SplitDirection, SplitRequest, SplitSize, Tab, TabId};
-use mux::window::{Window, WindowId};
+use mux::window::{TabInsertPosition, Window, WindowId};
 use mux::Mux;
 use portable_pty::CommandBuilder;
 use std::collections::HashMap;
@@ -252,6 +252,7 @@ impl SpawnWindow {
                 None,
                 self.workspace.unwrap_or_else(|| mux.active_workspace()),
                 self.position,
+                TabInsertPosition::Append,
             )
             .await
             .map_err(|e| mlua::Error::external(format!("{:#?}", e)))?;
@@ -303,6 +304,7 @@ impl SpawnTab {
                 pane,
                 String::new(),
                 None, // optional gui window position
+                TabInsertPosition::Append,
             )
             .await
             .map_err(|e| mlua::Error::external(format!("{:#?}", e)))?;

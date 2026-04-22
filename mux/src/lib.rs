@@ -2,7 +2,7 @@ use crate::client::{ClientId, ClientInfo};
 use crate::pane::{CachePolicy, Pane, PaneId};
 use crate::ssh_agent::AgentProxy;
 use crate::tab::{SplitRequest, Tab, TabId};
-use crate::window::{Window, WindowId};
+use crate::window::{TabInsertPosition, Window, WindowId};
 use anyhow::{anyhow, Context, Error};
 use config::keyassignment::SpawnTabDomain;
 use config::{configuration, ExitBehavior, GuiPosition};
@@ -1001,16 +1001,42 @@ impl Mux {
     }
 
     pub fn add_tab_to_window(&self, tab: &Arc<Tab>, window_id: WindowId) -> anyhow::Result<()> {
+        self.add_tab_to_window_with_position(tab, window_id, TabInsertPosition::Append)
+            .map(|_| ())
+    }
+
+    pub fn add_tab_to_window_with_position(
+        &self,
+        tab: &Arc<Tab>,
+        window_id: WindowId,
+        position: TabInsertPosition,
+    ) -> anyhow::Result<usize> {
         let tab_id = tab.tab_id();
+        let tab_idx = {
+            let mut window = self
+                .get_window_mut(window_id)
+                .ok_or_else(|| anyhow!("add_tab_to_window: no such window_id {}", window_id))?;
+            window.insert_tab(tab, position)
+        };
+        self.recompute_pane_count();
+        self.notify(MuxNotification::TabAddedToWindow { tab_id, window_id });
+        Ok(tab_idx)
+    }
+
+    pub fn add_tab_to_window_and_activate_with_position(
+        &self,
+        tab: &Arc<Tab>,
+        window_id: WindowId,
+        position: TabInsertPosition,
+    ) -> anyhow::Result<usize> {
+        let tab_idx = self.add_tab_to_window_with_position(tab, window_id, position)?;
         {
             let mut window = self
                 .get_window_mut(window_id)
                 .ok_or_else(|| anyhow!("add_tab_to_window: no such window_id {}", window_id))?;
-            window.push(tab);
+            window.save_and_then_set_active(tab_idx);
         }
-        self.recompute_pane_count();
-        self.notify(MuxNotification::TabAddedToWindow { tab_id, window_id });
-        Ok(())
+        Ok(tab_idx)
     }
 
     /// Returns the ID of the window containing the given tab ID, if any.
@@ -1323,6 +1349,7 @@ impl Mux {
         current_pane_id: Option<PaneId>,
         workspace_for_new_window: String,
         window_position: Option<GuiPosition>,
+        tab_insert_position: TabInsertPosition,
     ) -> anyhow::Result<(Arc<Tab>, Arc<dyn Pane>, WindowId)> {
         let domain = self
             .resolve_spawn_tab_domain(current_pane_id, &domain)
@@ -1331,7 +1358,8 @@ impl Mux {
         let window_builder;
         let term_config;
 
-        let (window_id, size) = if let Some(window_id) = window_id {
+        let requested_window_id = window_id;
+        let (window_id, size) = if let Some(window_id) = requested_window_id {
             let window = self
                 .get_window_mut(window_id)
                 .ok_or_else(|| anyhow!("window_id {} not found on this server", window_id))?;
@@ -1397,11 +1425,16 @@ impl Mux {
 
         // FIXME: clipboard?
 
-        let mut window = self
-            .get_window_mut(window_id)
-            .ok_or_else(|| anyhow!("no such window!?"))?;
-        if let Some(idx) = window.idx_by_id(tab.tab_id()) {
-            window.save_and_then_set_active(idx);
+        if requested_window_id.is_some() {
+            self.add_tab_to_window_and_activate_with_position(&tab, window_id, tab_insert_position)?;
+        } else {
+            self.add_tab_to_window(&tab, window_id)?;
+            let mut window = self
+                .get_window_mut(window_id)
+                .ok_or_else(|| anyhow!("no such window!?"))?;
+            if let Some(idx) = window.idx_by_id(tab.tab_id()) {
+                window.save_and_then_set_active(idx);
+            }
         }
 
         Ok((tab, pane, window_id))

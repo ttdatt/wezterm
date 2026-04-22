@@ -4,6 +4,7 @@ use config::TermConfig;
 use mux::activity::Activity;
 use mux::domain::SplitSource;
 use mux::tab::SplitRequest;
+use mux::window::TabInsertPosition;
 use mux::window::WindowId as MuxWindowId;
 use mux::Mux;
 use portable_pty::CommandBuilder;
@@ -14,6 +15,7 @@ use wezterm_term::TerminalSize;
 pub enum SpawnWhere {
     NewWindow,
     NewTab,
+    NewTabAfterCurrent,
     SplitPane(SplitRequest),
 }
 
@@ -123,6 +125,10 @@ pub async fn spawn_command_internal(
             }
         }
         _ => {
+            let tab_insert_position = match spawn_where {
+                SpawnWhere::NewTabAfterCurrent => TabInsertPosition::AfterActive,
+                _ => TabInsertPosition::Append,
+            };
             let (_tab, pane, window_id) = mux
                 .spawn_tab_or_window(
                     match spawn_where {
@@ -136,6 +142,7 @@ pub async fn spawn_command_internal(
                     current_pane_id,
                     workspace,
                     spawn.position,
+                    tab_insert_position,
                 )
                 .await
                 .context("spawn_tab_or_window")?;

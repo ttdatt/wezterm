@@ -6,6 +6,12 @@ use std::sync::Arc;
 static WIN_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
 pub type WindowId = usize;
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TabInsertPosition {
+    Append,
+    AfterActive,
+}
+
 pub struct Window {
     id: WindowId,
     tabs: Vec<Arc<Tab>>,
@@ -80,6 +86,15 @@ impl Window {
         self.check_that_tab_isnt_already_in_window(tab);
         self.tabs.insert(index, Arc::clone(tab));
         self.invalidate();
+    }
+
+    pub fn insert_tab(&mut self, tab: &Arc<Tab>, position: TabInsertPosition) -> usize {
+        let idx = match position {
+            TabInsertPosition::Append => self.tabs.len(),
+            TabInsertPosition::AfterActive => usize::min(self.active.saturating_add(1), self.tabs.len()),
+        };
+        self.insert(idx, tab);
+        idx
     }
 
     pub fn push(&mut self, tab: &Arc<Tab>) {
@@ -264,5 +279,80 @@ impl Window {
         if invalidated {
             self.invalidate();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tab::Tab;
+    use crate::Mux;
+    use std::sync::{Arc, Mutex};
+    use wezterm_term::TerminalSize;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn insert_after_active_places_new_tab_next_to_active() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let mux = Arc::new(Mux::new(None));
+        Mux::set_mux(&mux);
+
+        let mut window = Window::new(Some("default".to_string()), None);
+        let size = TerminalSize::default();
+
+        let a = Arc::new(Tab::new(&size));
+        let b = Arc::new(Tab::new(&size));
+        let c = Arc::new(Tab::new(&size));
+        let n = Arc::new(Tab::new(&size));
+
+        window.insert_tab(&a, TabInsertPosition::Append);
+        window.insert_tab(&b, TabInsertPosition::Append);
+        window.insert_tab(&c, TabInsertPosition::Append);
+        window.set_active_without_saving(0);
+
+        let idx = window.insert_tab(&n, TabInsertPosition::AfterActive);
+        window.save_and_then_set_active(idx);
+
+        assert_eq!(idx, 1);
+        assert_eq!(window.idx_by_id(a.tab_id()), Some(0));
+        assert_eq!(window.idx_by_id(n.tab_id()), Some(1));
+        assert_eq!(window.idx_by_id(b.tab_id()), Some(2));
+        assert_eq!(window.idx_by_id(c.tab_id()), Some(3));
+        assert_eq!(window.get_active_idx(), 1);
+
+        Mux::shutdown();
+    }
+
+    #[test]
+    fn append_position_keeps_existing_behavior() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let mux = Arc::new(Mux::new(None));
+        Mux::set_mux(&mux);
+
+        let mut window = Window::new(Some("default".to_string()), None);
+        let size = TerminalSize::default();
+
+        let a = Arc::new(Tab::new(&size));
+        let b = Arc::new(Tab::new(&size));
+        let c = Arc::new(Tab::new(&size));
+        let n = Arc::new(Tab::new(&size));
+
+        window.insert_tab(&a, TabInsertPosition::Append);
+        window.insert_tab(&b, TabInsertPosition::Append);
+        window.insert_tab(&c, TabInsertPosition::Append);
+        window.set_active_without_saving(0);
+
+        let idx = window.insert_tab(&n, TabInsertPosition::Append);
+        window.save_and_then_set_active(idx);
+
+        assert_eq!(idx, 3);
+        assert_eq!(window.idx_by_id(a.tab_id()), Some(0));
+        assert_eq!(window.idx_by_id(b.tab_id()), Some(1));
+        assert_eq!(window.idx_by_id(c.tab_id()), Some(2));
+        assert_eq!(window.idx_by_id(n.tab_id()), Some(3));
+        assert_eq!(window.get_active_idx(), 3);
+
+        Mux::shutdown();
     }
 }
