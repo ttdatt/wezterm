@@ -140,11 +140,13 @@ impl CopyOverlay {
                 let saved_text = match saved {
                     Pattern::CaseSensitiveString(s)
                     | Pattern::CaseInSensitiveString(s)
+                    | Pattern::CaseSmartString(s)
                     | Pattern::Regex(s) => s,
                 };
                 match params.pattern {
                     Pattern::CaseSensitiveString(_) => Pattern::CaseSensitiveString(saved_text),
                     Pattern::CaseInSensitiveString(_) => Pattern::CaseInSensitiveString(saved_text),
+                    Pattern::CaseSmartString(_) => Pattern::CaseSmartString(saved_text),
                     Pattern::Regex(_) => Pattern::Regex(saved_text),
                 }
             } else {

@@ -2893,6 +2893,9 @@ impl TermWindow {
                                 Pattern::CaseInSensitiveString(_) => {
                                     Pattern::CaseInSensitiveString(current_text)
                                 }
+                                Pattern::CaseSmartString(_) => {
+                                    Pattern::CaseSmartString(current_text)
+                                }
                                 Pattern::Regex(_) => Pattern::Regex(current_text),
                                 Pattern::CurrentSelectionOrEmptyString => {
                                     // For this variant, use the resolved pattern from selection
