@@ -14,7 +14,7 @@ use cocoa::appkit::{
 };
 use cocoa::base::{id, nil};
 use cocoa::foundation::{NSArray, NSInteger};
-use objc::runtime::Object;
+use objc::runtime::{BOOL, Object, YES};
 use objc::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
