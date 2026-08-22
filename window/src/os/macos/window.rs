@@ -24,7 +24,6 @@ use cocoa::appkit::{
 use cocoa::base::*;
 use cocoa::foundation::{
     NSArray, NSInteger, NSNotFound, NSPoint, NSRect, NSSize, NSUInteger,
-    NSString,
 };
 use config::window::WindowLevel;
 use config::{ConfigHandle, RgbaColor, SrgbaTuple};
@@ -43,7 +42,7 @@ use raw_window_handle::{
 };
 use std::any::Any;
 use std::cell::RefCell;
-use std::ffi::{c_void, CStr};
+use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::time::Instant;
@@ -1247,14 +1246,6 @@ fn apply_decorations_to_window(
         } else {
             window.setTitlebarAppearsTransparent_(to_yes_no(!has_decorations));
         }
-
-        if let Some(titlebar_view_container) = get_titlebar_view_container(window) {
-            // hiding the subview prevents it from participating in normal visible/hit-tested view behavior
-            let _: () =
-                msg_send![*titlebar_view_container.load(), setHidden: to_yes_no(!has_decorations)];
-        }
-
-        let _: () = msg_send![**window, setMovable: to_yes_no(has_decorations)];
     }
 }
 
@@ -1307,64 +1298,6 @@ fn decoration_to_mask(
             | NSWindowStyleMask::NSMiniaturizableWindowMask
             | NSWindowStyleMask::NSResizableWindowMask
     }
-}
-
-unsafe fn get_view_class_name(id: id) -> Option<String> {
-    if id.is_null() {
-        return None;
-    }
-
-    let class_name: id = msg_send![id, className];
-
-    if class_name.is_null() {
-        return None;
-    }
-
-    let cstr = CStr::from_ptr(class_name.UTF8String()).to_str();
-
-    match cstr {
-        Ok(s) => Some(s.to_string()),
-        Err(_) => None,
-    }
-}
-
-fn get_titlebar_view_container(window: &StrongPtr) -> Option<WeakPtr> {
-    let super_view = get_view_superview(window)?;
-    let sub_views = get_view_subviews(&super_view.load())?;
-    let count = unsafe { sub_views.load().count() };
-
-    for i in 0..count {
-        let sub_view: id = unsafe { sub_views.load().objectAtIndex(i) };
-
-        if sub_view.is_null() {
-            continue;
-        }
-
-        let class_name = unsafe { get_view_class_name(sub_view)? };
-        if class_name == TITLEBAR_VIEW_NAME {
-            return Some(unsafe { WeakPtr::new(sub_view) });
-        }
-    }
-
-    None
-}
-
-fn get_view_superview(view: &StrongPtr) -> Option<WeakPtr> {
-    let super_view_id: id = unsafe { msg_send![view.contentView(), superview] };
-    if super_view_id.is_null() {
-        return None;
-    }
-
-    Some(unsafe { WeakPtr::new(super_view_id) })
-}
-
-fn get_view_subviews(view: &StrongPtr) -> Option<WeakPtr> {
-    let sub_views_id: id = unsafe { msg_send![**view, subviews] };
-    if sub_views_id.is_null() {
-        return None;
-    }
-
-    Some(unsafe { WeakPtr::new(sub_views_id) })
 }
 
 #[derive(Debug)]
@@ -1652,7 +1585,6 @@ impl Inner {
 const VIEW_CLS_NAME: &str = "WezTermWindowView";
 const WINDOW_CLS_NAME: &str = "WezTermWindow";
 const TITLEBAR_BACKGROUND_VIEW_CLS_NAME: &str = "WezTermTitlebarBackgroundView";
-const TITLEBAR_VIEW_NAME: &str = "NSTitlebarContainerView";
 
 struct WindowView {
     inner: Rc<RefCell<Inner>>,
