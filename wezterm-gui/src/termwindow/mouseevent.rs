@@ -3,7 +3,7 @@ use crate::termwindow::{
     GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem, UIItemType, TMB,
 };
 use ::window::{
-    MouseButtons as WMB, MouseCursor, MouseEvent, MouseEventKind as WMEK, MousePress,
+    CursorIcon, MouseButtons as WMB, MouseEvent, MouseEventKind as WMEK, MousePress,
     WindowDecorations, WindowOps, WindowState,
 };
 use config::keyassignment::{KeyAssignment, MouseEventTrigger, SpawnTabDomain};
@@ -286,7 +286,7 @@ impl super::TermWindow {
     pub fn mouse_leave_impl(&mut self, context: &dyn WindowOps) {
         self.current_mouse_event = None;
         self.update_title();
-        context.set_cursor(Some(MouseCursor::Arrow));
+        context.set_cursor(Some(CursorIcon::Default));
         context.invalidate();
     }
 
@@ -437,7 +437,7 @@ impl super::TermWindow {
             }
             _ => {}
         }
-        context.set_cursor(Some(MouseCursor::Arrow));
+        context.set_cursor(Some(CursorIcon::Default));
     }
 
     fn do_new_tab_button_click(&mut self, button: MousePress) {
@@ -597,7 +597,7 @@ impl super::TermWindow {
             }
             _ => {}
         }
-        context.set_cursor(Some(MouseCursor::Arrow));
+        context.set_cursor(Some(CursorIcon::Default));
     }
 
     pub fn mouse_event_above_scroll_thumb(
@@ -622,7 +622,7 @@ impl super::TermWindow {
             );
             context.invalidate();
         }
-        context.set_cursor(Some(MouseCursor::Arrow));
+        context.set_cursor(Some(CursorIcon::Default));
     }
 
     pub fn mouse_event_below_scroll_thumb(
@@ -647,7 +647,7 @@ impl super::TermWindow {
             );
             context.invalidate();
         }
-        context.set_cursor(Some(MouseCursor::Arrow));
+        context.set_cursor(Some(CursorIcon::Default));
     }
 
     pub fn mouse_event_scroll_thumb(
@@ -662,7 +662,7 @@ impl super::TermWindow {
             // self.scroll_drag_start = Some(from_top);
             self.dragging = Some((item, event));
         }
-        context.set_cursor(Some(MouseCursor::Arrow));
+        context.set_cursor(Some(CursorIcon::Default));
     }
 
     pub fn mouse_event_split(
@@ -673,8 +673,8 @@ impl super::TermWindow {
         context: &dyn WindowOps,
     ) {
         context.set_cursor(Some(match &split.direction {
-            SplitDirection::Horizontal => MouseCursor::SizeLeftRight,
-            SplitDirection::Vertical => MouseCursor::SizeUpDown,
+            SplitDirection::Horizontal => CursorIcon::EwResize,
+            SplitDirection::Vertical => CursorIcon::NsResize,
         }));
 
         if event.kind == WMEK::Press(MousePress::Left) {
@@ -878,11 +878,11 @@ impl super::TermWindow {
         context.set_cursor(Some(if show_link_cursor {
             // When hovering over a hyperlink, show an appropriate
             // mouse cursor to give the cue that it is clickable
-            MouseCursor::Hand
+            CursorIcon::Pointer
         } else if pane.is_mouse_grabbed() || outside_window {
-            MouseCursor::Arrow
+            CursorIcon::Default
         } else {
-            MouseCursor::Text
+            CursorIcon::Text
         }));
 
         let event_trigger_type = match &event.kind {
