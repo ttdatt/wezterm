@@ -1,4 +1,5 @@
 #![cfg(target_os = "macos")]
+
 use crate::ToastNotification;
 use block2::{Block, RcBlock};
 use objc2::rc::Retained;
@@ -94,7 +95,7 @@ impl Drop for NotifDelegate {
 }
 
 const CENTER: LazyLock<Retained<UNUserNotificationCenter>> =
-    LazyLock::new(|| UNUserNotificationCenter::currentNotificationCenter());
+    LazyLock::new(UNUserNotificationCenter::currentNotificationCenter);
 
 pub fn initialize() {
     static INIT: Once = Once::new();
